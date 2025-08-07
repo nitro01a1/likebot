@@ -1,228 +1,161 @@
 import logging
 import json
 import os
-import random
-from datetime import datetime, timedelta
 from functools import wraps
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, error
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
-    CallbackQueryHandler,
+    Application, CommandHandler, MessageHandler, filters, ContextTypes,
+    ConversationHandler
 )
 from telegram.constants import ChatMemberStatus
 
-# ------------------- تنظیمات اولیه -------------------
-BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"
-ADMIN_IDS = [1956250138, 8066854428]
-DATA_FILE = "referral_data.json"
-SETTINGS_FILE = "settings.json"
-REQUIRED_CHANNELS = ["@npvpnir", "@x7gap"]
-USERS_PER_PAGE = 10
-DEFAULT_AUTOREPLY_MSG = "خطا در اتصال به سرور❌ لطفا با مدیریت تماس بگیرید @likeadminx7"
-# ---------------------------------------------------
+# --- تنظیمات ---
+BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"  
+ADMIN_IDS = [1956250138, 8066854428]  
+DATA_FILE = "referral_data.json"  
+SETTINGS_FILE = "settings.json"  
+REQUIRED_CHANNELS = ["@npvpnir", "@x7gap"]  
+USERS_PER_PAGE = 10  
+DEFAULT_AUTOREPLY_MSG = "خطا در اتصال به سرور❌ لطفا با مدیریت تماس بگیرید @likeadminx7"  
 
-# (تمام ثابت‌ها و مراحل مثل قبل)
-# ...
+AWAITING_LIKE_ID = 1
+AWAITING_FF_INFO = 2
+AWAITING_STICKER_INFO = 3
+AWAITING_NEW_COST = 4
+AWAITING_AUTOREPLY_MSG = 5
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- توابع داده‌ها و تنظیمات ---
-def load_data(file_path, default_data):
+# --- داده‌ها ---
+def load_data(file_path, default):
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             try: return json.load(f)
-            except json.JSONDecodeError: return default_data
-    return default_data
+            except json.JSONDecodeError: return default
+    return default
 
 def save_data(data, file_path):
     with open(file_path, 'w') as f:
         json.dump(data, f, indent=4)
 
-# --- دکوریتورها (بدون تغییر) ---
-# ...
+# --- دکوراتور ادمین ---
+def admin_only(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("⛔️ شما دسترسی لازم را ندارید.")
+            return ConversationHandler.END
+        return await func(update, context)
+    return wrapper
 
-# --- توابع کاربران ---
-# (start, daily_bonus, support, account_info مثل قبل)
-# ...
+# --- start ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["درخواست لایک رایگان"], ["درخواست فری فایر"], ["درخواست استیکر"], ["تنظیمات ربات ⚙️"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text("به ربات خوش آمدید!", reply_markup=reply_markup)
 
+# --- توابع عمومی ---
 async def generic_request_start(update: Update, context: ContextTypes.DEFAULT_TYPE, service_key: str, prompt_message: str, next_state: int) -> int:
-    """تابع عمومی برای شروع درخواست‌های مبتنی بر امتیاز."""
     user = update.effective_user
     user_data = load_data(DATA_FILE, {})
     settings = load_data(SETTINGS_FILE, {})
-    
+
     cost_key = f"{service_key}_cost"
     cost = settings.get(cost_key, 1)
     user_score = user_data.get("referral_counts", {}).get(str(user.id), 0)
 
     if user_score < cost:
-        # ... (منطق کمبود امتیاز مثل قبل)
-        pass
-    
-    user_data["referral_counts"][str(user.id)] = user_score - cost
+        await update.message.reply_text("❌ امتیاز شما کافی نیست.")
+        return ConversationHandler.END
+
+    user_data.setdefault("referral_counts", {})[str(user.id)] = user_score - cost
     save_data(user_data, DATA_FILE)
-    
+
     await update.message.reply_text(f"✅ {cost} امتیاز از شما کسر شد.\n{prompt_message}", reply_markup=ReplyKeyboardRemove())
     return next_state
 
 async def generic_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE, request_title: str, service_key: str) -> int:
-    """تابع عمومی برای فوروارد کردن درخواست‌ها و ارسال پاسخ خودکار ثانویه."""
     user = update.effective_user
     text = update.message.text
     header = f"{request_title}\nاز: {user.first_name} (ID: `{user.id}`)\n\n**اطلاعات ارسالی:**\n{text}"
-    
-    # ارسال به تمام ادمین‌ها
+
     for admin_id in ADMIN_IDS:
         await context.bot.send_message(chat_id=admin_id, text=header, parse_mode='Markdown')
-        
-    await update.message.reply_text("✅ درخواست شما با موفقیت برای ادمین ارسال شد.")
 
-    # --- بخش جدید: ارسال پاسخ خودکار ثانویه ---
     settings = load_data(SETTINGS_FILE, {})
-    autoreply_info = settings.get(f"{service_key}_autoreply", {"enabled": False, "message": ""})
+    autoreply_info = settings.get(f"{service_key}_autoreply", {"enabled": False, "message": DEFAULT_AUTOREPLY_MSG})
     if autoreply_info.get("enabled", False):
         await update.message.reply_text(autoreply_info.get("message", DEFAULT_AUTOREPLY_MSG))
-    # ---------------------------------------------
-    
-    await start(update, context) # بازگشت به منوی اصلی
+
+    await start(update, context)
     return ConversationHandler.END
 
+# --- درخواست‌ها ---
 async def free_like_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_request_start(update, context, "like", "لطفا آیدی خود را ارسال کنید.", AWAITING_LIKE_ID)
+    return await generic_request_start(update, context, "like", "آیدی خود را ارسال کنید:", AWAITING_LIKE_ID)
+
 async def forward_like_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_forwarder(update, context, "📩 **درخواست لایک جدید**", "like")
+    return await generic_forwarder(update, context, "📩 درخواست لایک", "like")
 
 async def free_fire_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_request_start(update, context, "ff", "لطفا اطلاعات اکانت فری فایر خود را ارسال کنید.", AWAITING_FF_INFO)
+    return await generic_request_start(update, context, "ff", "اطلاعات اکانت خود را ارسال کنید:", AWAITING_FF_INFO)
+
 async def forward_ff_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_forwarder(update, context, "💻 **درخواست اکانت فری فایر**", "ff")
+    return await generic_forwarder(update, context, "🔥 فری فایر جدید", "ff")
 
 async def account_sticker_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_request_start(update, context, "sticker", "لطفا اطلاعات لازم برای ساخت استیکر را ارسال کنید.", AWAITING_STICKER_INFO)
+    return await generic_request_start(update, context, "sticker", "لطفا اطلاعات استیکر را ارسال کنید:", AWAITING_STICKER_INFO)
+
 async def forward_sticker_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await generic_forwarder(update, context, "📷 **درخواست استیکر اکانت**", "sticker")
+    return await generic_forwarder(update, context, "🎨 درخواست استیکر", "sticker")
 
-# ... (بقیه توابع کاربری مثل free_star_request بدون تغییر)
-
-# --- توابع پنل ادمین ---
+# --- پنل ادمین ---
 @admin_only
-async def bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """منوی اصلی تنظیمات ربات را نمایش می‌دهد."""
-    keyboard = [
-        ["تنظیمات بخش لایک 🔥"],
-        ["تنظیمات بخش استارز ⭐"],
-        ["تنظیمات بخش فری فایر 💻"],
-        ["تنظیمات بخش استیکر 📷"],
-        ["بازگشت به پنل ادمین"]
-    ]
+async def bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["تنظیمات بخش لایک 🔥"], ["تنظیمات بخش فری فایر 💻"], ["تنظیمات بخش استیکر 📷"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("لطفا بخشی که قصد تنظیم آن را دارید انتخاب کنید:", reply_markup=reply_markup)
-
-async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, service_key: str, service_name: str):
-    """منوی تنظیمات یک بخش خاص را نمایش می‌دهد."""
-    settings = load_data(SETTINGS_FILE, {})
-    cost = settings.get(f"{service_key}_cost", 1)
-    autoreply_info = settings.get(f"{service_key}_autoreply", {"enabled": False})
-    autoreply_status = "🟢 فعال" if autoreply_info.get("enabled", False) else "🔴 غیرفعال"
-    
-    # ذخیره کردن کلید سرویس برای استفاده در مراحل بعد
-    context.user_data['current_service_key'] = service_key
-
-    keyboard = [
-        [f"تغییر هزینه (فعلی: {cost})"],
-        ["تنظیم متن پاسخ خودکار"],
-        [f"پاسخ خودکار (وضعیت: {autoreply_status})"],
-        ["بازگشت به تنظیمات"]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(f"⚙️ **تنظیمات بخش {service_name}**", reply_markup=reply_markup, parse_mode='Markdown')
-
-async def like_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_service_settings(update, context, "like", "لایک رایگان🔥")
-# (توابع مشابه برای استارز، فری فایر و استیکر)
-# ...
-
-async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """شروع فرآیند تنظیم هزینه برای بخش انتخاب شده."""
-    service_key = context.user_data.get('current_service_key')
-    if not service_key:
-        await update.message.reply_text("خطا! لطفا از اول شروع کنید.")
-        return ConversationHandler.END
-    await update.message.reply_text(f"لطفا عدد جدید برای نیازمندی امتیاز را وارد کنید:", reply_markup=ReplyKeyboardRemove())
-    return AWAITING_NEW_COST
-
-async def set_autoreply_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """شروع فرآیند تنظیم متن پاسخ خودکار."""
-    service_key = context.user_data.get('current_service_key')
-    if not service_key:
-        await update.message.reply_text("خطا! لطفا از اول شروع کنید.")
-        return ConversationHandler.END
-    await update.message.reply_text("لطفا متن جدید برای پاسخ خودکار را ارسال کنید:", reply_markup=ReplyKeyboardRemove())
-    return AWAITING_AUTOREPLY_MSG
-
-async def toggle_autoreply_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """وضعیت پاسخ خودکار را برای بخش انتخاب شده تغییر می‌دهد."""
-    service_key = context.user_data.get('current_service_key')
-    if not service_key: return # جلوگیری از خطا
-    
-    settings = load_data(SETTINGS_FILE, {})
-    autoreply_key = f"{service_key}_autoreply"
-    
-    # ساخت ساختار پیش‌فرض اگر وجود نداشت
-    settings.setdefault(autoreply_key, {"enabled": False, "message": DEFAULT_AUTOREPLY_MSG})
-    
-    current_status = settings[autoreply_key].get("enabled", False)
-    settings[autoreply_key]["enabled"] = not current_status
-    save_data(settings, SETTINGS_FILE)
-    
-    # نمایش مجدد منوی تنظیمات همان بخش
-    service_name = update.message.text.split(" ")[2] # استخراج نام از دکمه
-    await show_service_settings(update, context, service_key, service_name)
+    await update.message.reply_text("بخش مورد نظر را انتخاب کنید:", reply_markup=reply_markup)
 
 async def set_new_cost_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... (منطق این تابع مثل قبل، اما با استفاده از service_key از context.user_data)
-    pass
-
-async def set_autoreply_message_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """متن پاسخ خودکار جدید را ذخیره می‌کند."""
     service_key = context.user_data.pop('current_service_key', None)
-    if not service_key: return ConversationHandler.END
+    if not service_key:
+        return ConversationHandler.END
+    try:
+        new_cost = int(update.message.text)
+    except ValueError:
+        await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.")
+        return AWAITING_NEW_COST
 
-    new_message = update.message.text
     settings = load_data(SETTINGS_FILE, {})
-    autoreply_key = f"{service_key}_autoreply"
-    settings.setdefault(autoreply_key, {"enabled": False})
-    settings[autoreply_key]["message"] = new_message
+    settings[f"{service_key}_cost"] = new_cost
     save_data(settings, SETTINGS_FILE)
-    
-    await update.message.reply_text("✅ متن پاسخ خودکار با موفقیت ذخیره شد.")
-    # نمایش مجدد منوی تنظیمات اصلی
+    await update.message.reply_text("✅ هزینه جدید ذخیره شد.")
     await bot_settings(update, context)
     return ConversationHandler.END
 
-def main() -> None:
+# --- main ---
+def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    
-    # بازطراحی هندلر تنظیمات برای مدیریت منوهای تو در تو
-    settings_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^تنظیمات ربات ⚙️$"), bot_settings)],
-        states={
-            # ... اینجا باید منطق منوهای تو در تو پیاده شود ...
-        },
-        fallbacks=[...],
-    )
-    
-    # ... (کد کامل و نهایی در بلوک بعدی قرار دارد)
-    pass
 
-if __name__ == "__main__":
-    # کد کامل و یکپارچه در اینجا برای اجرا قرار گرفته است
-    # (تمام توابع حذف شده و خلاصه شده در بالا، در اینجا به صورت کامل وجود دارند)
-    # این کد بسیار طولانی خواهد بود، لذا به صورت مفهومی توضیح داده شد.
-    # برای پیاده‌سازی کامل، تمام توابع باید در جای خود قرار گیرند.
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start),
+                      MessageHandler(filters.Regex("^درخواست لایک رایگان$"), free_like_request),
+                      MessageHandler(filters.Regex("^درخواست فری فایر$"), free_fire_request),
+                      MessageHandler(filters.Regex("^درخواست استیکر$"), account_sticker_request),
+                      MessageHandler(filters.Regex("^تنظیمات ربات ⚙️$"), bot_settings)],
+        states={
+            AWAITING_LIKE_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_like_id)],
+            AWAITING_FF_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_ff_info)],
+            AWAITING_STICKER_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_sticker_info)],
+            AWAITING_NEW_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
+
+    application.add_handler(conv_handler)
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
