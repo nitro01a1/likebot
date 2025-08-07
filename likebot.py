@@ -17,11 +17,11 @@ from telegram.ext import (
 from telegram.constants import ChatMemberStatus
 
 # ------------------- تنظیمات اولیه -------------------
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-ADMIN_IDS = [000000000, 111111111]
+BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"
+ADMIN_IDS = [1956250138, 8066854428]
 DATA_FILE = "referral_data.json"
 SETTINGS_FILE = "settings.json"
-REQUIRED_CHANNELS = ["@YourChannelUsername", "@YourGroupUsername"]
+REQUIRED_CHANNELS = ["@npvpnir", "@x7gap"]
 USERS_PER_PAGE = 10
 DEFAULT_AUTOREPLY_MSG = "خطا در اتصال به سرور❌ لطفا با مدیریت تماس بگیرید @likeadminx7"
 # ---------------------------------------------------
