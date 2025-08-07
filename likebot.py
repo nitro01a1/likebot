@@ -20,7 +20,7 @@ from telegram.constants import ParseMode
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "").split(',')
 ADMIN_IDS = [int(admin_id) for admin_id in ADMIN_IDS_STR if admin_id]
-FORCED_JOIN_CHANNELS = os.getenv("FORCED_JOIN_CHANNELS", "").split(',')
+FORCED_JOIN_CHANNELS = [ch.strip() for ch in os.getenv("FORCED_JOIN_CHANNELS", "").split(',') if ch.strip()]
 
 # --- مسیر فایل دیتا روی حافظه دائمی Render Disk ---
 DATA_PATH = os.path.join(os.getenv("RENDER_DISK_PATH", "."), "data.json")
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # --- متغیرهای ConversationHandler ---
 (GET_GAME_ID, GET_STARS_INFO, ADMIN_PANEL, MANAGE_USER_ID, MANAGE_USER_ACTION) = range(5)
 
-# --- ثابت‌های متنی برای دکمه‌ها (برای جلوگیری از خطای تایپی) ---
+# --- ثابت‌های متنی برای دکمه‌ها ---
 BTN_LIKE_FF = "🔥 لایک فری فایر"
 BTN_ACC_INFO = "ℹ️ اطلاعات اکانت"
 BTN_ACC_STICKER = "🎨 استیکر اکانت"
@@ -68,12 +68,13 @@ def save_data(data):
 
 # --- توابع کمکی ---
 async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not FORCED_JOIN_CHANNELS or FORCED_JOIN_CHANNELS == ['']:
+    if not FORCED_JOIN_CHANNELS:
         return True
     for channel in FORCED_JOIN_CHANNELS:
         try:
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
             if member.status not in ['member', 'administrator', 'creator']:
+                logger.warning(f"User {user_id} is not a member of {channel}. Status: {member.status}")
                 return False
         except Exception as e:
             logger.error(f"Error checking membership for {user_id} in {channel}: {e}")
@@ -85,7 +86,7 @@ def generate_referral_link(user_id: int, bot_username: str) -> str:
 
 
 # --- نمایش منوی اصلی با کیبورد ---
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: str = "خوش آمدید! لطفا یکی از گزینه‌ها را انتخاب کنید:"):
     keyboard_buttons = [
         [KeyboardButton(BTN_LIKE_FF), KeyboardButton(BTN_ACC_INFO)],
         [KeyboardButton(BTN_ACC_STICKER), KeyboardButton(BTN_FREE_STARS)],
@@ -93,12 +94,31 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [KeyboardButton(BTN_MY_ACCOUNT), KeyboardButton(BTN_SUPPORT)]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard_buttons, resize_keyboard=True)
-    await update.message.reply_text("خوش آمدید! لطفا یکی از گزینه‌ها را انتخاب کنید:", reply_markup=reply_markup)
+    
+    # تشخیص اینکه باید پیام جدید ارسال شود یا پیام قبلی ویرایش شود
+    if update.callback_query:
+        await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(message_text, reply_markup=reply_markup)
 
 
 # --- کنترلر دستورات اصلی ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
+    # **مهم: منطق جدید جوین اجباری**
+    if not await is_member(user.id, context):
+        keyboard = []
+        for i, ch in enumerate(FORCED_JOIN_CHANNELS):
+            keyboard.append([InlineKeyboardButton(f"عضویت در کانال {i+1}", url=f"https://t.me/{ch.lstrip('@')}")])
+        keyboard.append([InlineKeyboardButton("✅ عضو شدم", callback_data="check_join")])
+        
+        await update.message.reply_text(
+            "👋 سلام! برای استفاده از ربات، لطفا ابتدا در کانال‌های زیر عضو شوید و سپس دکمه 'عضو شدم' را بزنید.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
     user_id_str = str(user.id)
     data = load_data()
 
@@ -106,7 +126,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🤖 ربات در حال حاضر خاموش است.")
         return
 
-    # ثبت کاربر جدید و مدیریت رفرال
     if user_id_str not in data["users"]:
         data["users"][user_id_str] = {"name": user.full_name, "points": 0, "last_daily_bonus": None}
         if context.args and len(context.args) > 0:
@@ -124,15 +143,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
 
 
+# --- مدیریت دکمه "عضو شدم" ---
+async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = query.from_user
+    await query.answer()
+
+    if await is_member(user.id, context):
+        await query.edit_message_text("✅ عضویت شما تایید شد. خوش آمدید!")
+        await show_main_menu(update, context)
+    else:
+        await query.answer("❌ شما هنوز در همه کانال‌ها عضو نیستید!", show_alert=True)
+
+
 # --- مدیریت پیام‌های متنی (برای دکمه‌های کیبورد) ---
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    user_id = update.effective_user.id
     
-    if not await is_member(user_id, context):
-        await update.message.reply_text("❌ شما هنوز در همه کانال‌ها عضو نیستید! لطفا عضو شوید و دوباره تلاش کنید.")
-        return
-
     # مسیردهی بر اساس متن دکمه
     if user_text == BTN_MY_ACCOUNT:
         await my_account(update, context)
@@ -249,7 +276,10 @@ async def process_user_input_and_forward(update: Update, context: ContextTypes.D
     data = load_data()
     secondary_reply = data["settings"]["secondary_reply"].get(service_key)
     if secondary_reply:
+        logger.info(f"Sending secondary reply for {service_key}: {secondary_reply}")
         await update.message.reply_text(secondary_reply)
+    else:
+        logger.warning(f"No secondary reply found for service key: {service_key}")
         
     await show_main_menu(update, context)
     return ConversationHandler.END
@@ -267,10 +297,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --- پنل مدیریت ---
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("شما دسترسی به این بخش را ندارید.")
         return
 
     data = load_data()
@@ -296,7 +325,8 @@ async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     if query.data == "admin_toggle_bot":
         data['bot_status'] = 'off' if data.get('bot_status', 'on') == 'on' else 'on'
         save_data(data)
-        await admin_panel(query, context) # Refresh panel
+        # Refresh panel by calling the entry point again
+        await admin_panel_command(query, context)
 
     elif query.data == "admin_stats":
         user_count = len(data.get("users", {}))
@@ -304,12 +334,9 @@ async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     
     elif query.data == "admin_user_list":
         users = data.get("users", {})
-        if not users:
-            text = "هیچ کاربری ثبت نشده است."
-        else:
-            text = "لیست کاربران:\n\n"
-            for uid, udata in users.items():
-                text += f"👤 نام: {udata.get('name', 'N/A')}\n🆔 آیدی: `{uid}`\n\n"
+        text = "لیست کاربران:\n\n" if users else "هیچ کاربری ثبت نشده است."
+        for uid, udata in users.items():
+            text += f"👤 نام: {udata.get('name', 'N/A')}\n🆔 آیدی: `{uid}`\n\n"
         
         keyboard = [[InlineKeyboardButton("بازگشت", callback_data="admin_panel_back")]]
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -320,17 +347,15 @@ async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
 
     elif query.data == "admin_panel_back":
         await query.delete_message()
-        await admin_panel(update, context)
+        await admin_panel_command(update, context)
         return ADMIN_PANEL
-    
+
     return ADMIN_PANEL
 
-
 async def get_user_id_for_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This is now part of a conversation, so it expects a message
     target_user_id = update.message.text
     if not target_user_id.isdigit():
-        await update.message.reply_text("آیدی نامعتبر است. لطفا یک آیدی عددی صحیح وارد کنید.")
+        await update.message.reply_text("آیدی نامعتبر است.")
         return MANAGE_USER_ID
 
     data = load_data()
@@ -349,37 +374,30 @@ async def get_user_id_for_manage(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton(f"🚫 {ban_text}", callback_data=f"manage_ban_{target_user_id}")],
         [InlineKeyboardButton("بازگشت", callback_data="admin_panel_back")]
     ]
-    await update.message.reply_text(f"مدیریت کاربر `{target_user_id}`\nامتیاز فعلی: {points}\n\nچه کاری می‌خواهید انجام دهید؟", 
+    await update.message.reply_text(f"مدیریت کاربر `{target_user_id}`\nامتیاز فعلی: {points}", 
                                     reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
     
     return MANAGE_USER_ACTION
-
 
 async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     parts = query.data.split('_')
-    action = parts[1]
-    target_user_id = parts[2]
+    action, target_user_id = parts[1], parts[2]
     
     data = load_data()
     user_data = data["users"][target_user_id]
     
     if action == "add":
         user_data["points"] = user_data.get("points", 0) + 1
-        await query.answer("1 امتیاز اضافه شد.")
     elif action == "sub":
         user_data["points"] = user_data.get("points", 0) - 1
-        await query.answer("1 امتیاز کسر شد.")
     elif action == "ban":
-        current_status = user_data.get("banned", False)
-        user_data["banned"] = not current_status
-        await query.answer(f"کاربر {'از بن خارج شد' if current_status else 'بن شد'}.")
+        user_data["banned"] = not user_data.get("banned", False)
 
     save_data(data)
     
-    # Refresh the management message
     points = user_data.get("points", 0)
     ban_text = "رفع بن" if user_data.get("banned", False) else "بن کردن"
     keyboard = [
@@ -395,10 +413,8 @@ async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # --- تابع اصلی ---
 def main() -> None:
-    """Run the bot."""
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # فیلتر برای دکمه‌های سرویس
     service_entry_filter = (
         filters.Text([BTN_LIKE_FF]) | filters.Text([BTN_ACC_INFO]) |
         filters.Text([BTN_ACC_STICKER]) | filters.Text([BTN_FREE_STARS])
@@ -414,16 +430,17 @@ def main() -> None:
     )
 
     admin_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('admin', admin_panel)],
+        entry_points=[CommandHandler('admin', admin_panel_command)],
         states={
-            ADMIN_PANEL: [CallbackQueryHandler(handle_admin_callbacks, pattern='^admin_')],
+            ADMIN_PANEL: [CallbackQueryHandler(handle_admin_callbacks)],
             MANAGE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_id_for_manage)],
-            MANAGE_USER_ACTION: [CallbackQueryHandler(manage_user_action, pattern='^manage_')]
+            MANAGE_USER_ACTION: [CallbackQueryHandler(manage_user_action)]
         },
-        fallbacks=[CommandHandler('cancel', cancel), CallbackQueryHandler(handle_admin_callbacks, pattern='admin_panel_back')],
+        fallbacks=[CommandHandler('cancel', cancel)],
     )
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     application.add_handler(service_conv_handler)
     application.add_handler(admin_conv_handler)
     
