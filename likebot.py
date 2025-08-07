@@ -195,4 +195,3 @@ application = Application.builder().token(BOT_TOKEN).build()
 # ... Full handler registration ... print("ربات در حال اجراست...") application.run_polling() 
 if name == "main":
 main()
-بیا این کل کدمه
