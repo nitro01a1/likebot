@@ -2,38 +2,26 @@ import json
 import random
 import os
 from functools import wraps
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler,
-    CallbackQueryHandler,
-)
+from flask import Flask, request, abort
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+import asyncio
 
 # ====== تنظیمات اولیه ======
 BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"
 ADMINS = [1956250138, 8066854428]  # ایدی عددی ادمین‌ها
 CHANNELS = ["@npvpnir", "@x7gap"]  # یوزرنیم چنل‌های جوین اجباری
+WEBHOOK_URL = "https://likebot-hxwc.onrender.com"  # آدرس وب‌سرویس رندر
 
 DATA_FOLDER = "data"
 USERS_FILE = os.path.join(DATA_FOLDER, "users.json")
 SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.json")
 CONFIG_FILE = os.path.join(DATA_FOLDER, "config.json")
 
-# ====== ایجاد پوشه و فایل‌ها در صورت نبود ======
 if not os.path.exists(DATA_FOLDER):
     os.mkdir(DATA_FOLDER)
 if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump({}, f)
 if not os.path.exists(SETTINGS_FILE):
     default_settings = {
@@ -52,77 +40,60 @@ if not os.path.exists(SETTINGS_FILE):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(default_settings, f, ensure_ascii=False, indent=4)
 if not os.path.exists(CONFIG_FILE):
-    config = {
-        "bot_on": True
-    }
-    with open(CONFIG_FILE, "w") as f:
+    config = {"bot_on": True}
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f)
 
-# ====== بارگذاری داده‌ها ======
+# بارگذاری داده‌ها
 def load_json(filename):
     with open(filename, "r", encoding="utf-8") as f:
         return json.load(f)
-
 
 def save_json(filename, data):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-
 users = load_json(USERS_FILE)
 settings = load_json(SETTINGS_FILE)
 config = load_json(CONFIG_FILE)
 
-# ====== چک کردن عضویت در چنل‌ها ======
-async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    for channel in CHANNELS:
-        try:
-            member = await context.bot.get_chat_member(channel, user_id)
-            if member.status not in ["member", "administrator", "creator"]:
-                await update.message.reply_text(
-                    f"برای استفاده از ربات باید در کانال {channel} عضو باشید."
-                )
-                return False
-        except Exception:
-            await update.message.reply_text(
-                f"لطفا ابتدا در کانال {channel} عضو شوید و سپس دوباره تلاش کنید."
-            )
-            return False
-    return True
+# وب‌سرور Flask
+app = Flask(__name__)
+bot = Bot(token=BOT_TOKEN)
+dispatcher = Dispatcher(bot=bot, update_queue=None, workers=0)
 
-
-# ====== چک ادمین ======
+# دکوراتور چک ادمین
 def admin_only(func):
     @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def wrapper(update: Update, context):
         user_id = update.effective_user.id
         if user_id not in ADMINS:
-            await update.message.reply_text("⚠️ شما دسترسی ادمین ندارید.")
+            if update.message:
+                update.message.reply_text("⚠️ شما دسترسی ادمین ندارید.")
+            elif update.callback_query:
+                update.callback_query.answer("⚠️ شما دسترسی ادمین ندارید.", show_alert=True)
             return
-        return await func(update, context)
-
+        return func(update, context)
     return wrapper
 
-
-# ====== چک فعال بودن ربات ======
+# چک فعال بودن ربات
 def bot_active_check(func):
     @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def wrapper(update: Update, context):
         if not config.get("bot_on", True):
-            await update.message.reply_text("ربات در حال حاضر خاموش است.")
+            if update.message:
+                update.message.reply_text("ربات در حال حاضر خاموش است.")
+            elif update.callback_query:
+                update.callback_query.answer("ربات در حال حاضر خاموش است.", show_alert=True)
             return
-        return await func(update, context)
-
+        return func(update, context)
     return wrapper
 
-
-# ====== ساخت لینک رفرال ======
+# ساخت لینک رفرال
 def get_referral_link(user_id):
     return f"https://t.me/YourBotUserName?start={user_id}"
 
-
-# ====== ثبت کاربر جدید ======
+# ثبت کاربر جدید
 def add_new_user(user_id, username, fullname, ref=None):
     if str(user_id) not in users:
         users[str(user_id)] = {
@@ -137,42 +108,44 @@ def add_new_user(user_id, username, fullname, ref=None):
         if ref and str(ref) in users:
             users[str(ref)]["score"] += 1
             users[str(ref)]["referrals"].append(user_id)
-            # پیام دادن به رفرال که امتیاز گرفته
+            # پیام به رفرال (ادمین ها)
+            for admin_id in ADMINS:
+                try:
+                    bot.send_message(admin_id, f"کاربر {users[str(user_id)]['fullname']} با لینک شما وارد شد و یک امتیاز به شما افزوده شد.")
+                except:
+                    pass
         save_json(USERS_FILE, users)
 
-
-# ====== استارت و رفرال ======
+# هندلر استارت و رفرال
 @bot_active_check
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context):
     args = context.args
     user = update.effective_user
     user_id = user.id
     username = user.username
     fullname = user.full_name
     ref = None
-
     if args:
         try:
             ref = int(args[0])
-        except Exception:
+        except:
             ref = None
-
     add_new_user(user_id, username, fullname, ref)
+    text = f"سلام {fullname}!\nامتیاز شما: ({users[str(user_id)]['score']})\nلینک رفرال شما: {get_referral_link(user_id)}\nلطفا ابتدا در کانال‌های زیر عضو شوید:\n" + "\n".join(CHANNELS)
+    update.message.reply_text(text)
 
-    await update.message.reply_text(
-        f"سلام {fullname}!\n"
-        f"امتیاز شما: ({users[str(user_id)]['score']})\n"
-        f"لینک رفرال شما: {get_referral_link(user_id)}\n"
-        f"لطفا ابتدا در کانال‌های زیر عضو شوید:\n" + "\n".join(CHANNELS)
-    )
+# چک عضویت در چنل‌ها (غیر async به خاطر Flask)
+def is_member(user_id):
+    for channel in CHANNELS:
+        try:
+            member = bot.get_chat_member(channel, user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False
+        except:
+            return False
+    return True
 
-
-# ====== بخش‌های امتیازی ======
-
-# لیست بخش‌ها و اسم کلیدهای امتیازشون:
-# like_freefire, account_info, sticker_account, free_stars
-
-# ساخت صفحه کلید برای انتخاب بخش‌ها
+# منو اصلی
 def get_main_menu(user_id):
     score = users.get(str(user_id), {}).get("score", 0)
     menu = [
@@ -186,179 +159,105 @@ def get_main_menu(user_id):
     ]
     return InlineKeyboardMarkup(menu)
 
-
 @bot_active_check
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def menu(update: Update, context):
     user_id = update.effective_user.id
     if str(user_id) not in users:
-        await update.message.reply_text(
-            "لطفا ابتدا /start را بزنید."
-        )
+        update.message.reply_text("لطفا ابتدا /start را بزنید.")
+        return
+    if not is_member(user_id):
+        update.message.reply_text("برای استفاده از ربات باید در کانال‌های مربوطه عضو باشید.")
         return
     markup = get_main_menu(user_id)
-    await update.message.reply_text(
-        f"سلام، امتیاز شما: ({users[str(user_id)]['score']})\n"
-        f"لینک رفرال شما: {get_referral_link(user_id)}\n"
-        "بخش مورد نظر را انتخاب کنید:",
-        reply_markup=markup,
-    )
+    update.message.reply_text(f"سلام، امتیاز شما: ({users[str(user_id)]['score']})\nلینک رفرال شما: {get_referral_link(user_id)}\nبخش مورد نظر را انتخاب کنید:", reply_markup=markup)
 
-
-# ====== هندلر کال‌بک دکمه‌ها ======
-
+# حالت انتظار برای دریافت آیدی یا لینک
 SECTION_WAITING_FOR_ID = {}
 
 @bot_active_check
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context):
     query = update.callback_query
     user_id = query.from_user.id
-    await query.answer()
-
+    query.answer()
     if str(user_id) not in users:
-        await query.edit_message_text("لطفا ابتدا /start را بزنید.")
+        query.edit_message_text("لطفا ابتدا /start را بزنید.")
         return
-
     user_data = users[str(user_id)]
     section = query.data
     user_score = user_data.get("score", 0)
 
-    # چک بن بودن
     if user_data.get("banned", False):
-        await query.edit_message_text("شما توسط ادمین بن شده‌اید.")
+        query.edit_message_text("شما توسط ادمین بن شده‌اید.")
         return
 
-    # چک امتیاز لازم
     need_score = settings["sections"].get(section, 1)
     if user_score < need_score:
-        await query.edit_message_text(
-            f"برای دسترسی به این بخش به {need_score} امتیاز نیاز دارید.\n"
-            f"امتیاز شما: ({user_score})\n"
-            f"لینک رفرال شما: {get_referral_link(user_id)}\n"
-            "برای جمع‌آوری امتیاز باید رفرال جمع کنید."
-        )
+        query.edit_message_text(f"برای دسترسی به این بخش به {need_score} امتیاز نیاز دارید.\nامتیاز شما: ({user_score})\nلینک رفرال شما: {get_referral_link(user_id)}\nبرای جمع‌آوری امتیاز باید رفرال جمع کنید.")
         return
 
-    # بخش‌های مختلف:
-
     if section in ["like_freefire", "account_info", "sticker_account"]:
-        await query.edit_message_text(
-            f"لطفا آیدی عددی گیم خود را وارد کنید تا به ادمین‌ها پیام داده شود.\n"
-            f"امتیاز شما: ({user_score})\n"
-            f"لینک رفرال شما: {get_referral_link(user_id)}"
-        )
+        query.edit_message_text(f"لطفا آیدی عددی گیم خود را وارد کنید تا به ادمین‌ها پیام داده شود.\nامتیاز شما: ({user_score})\nلینک رفرال شما: {get_referral_link(user_id)}")
         SECTION_WAITING_FOR_ID[user_id] = section
         return
 
     if section == "free_stars":
-        await query.edit_message_text(
-            f"لطفا لینک چنل خود و آیدی تلگرام خود را ارسال کنید.\n"
-            f"امتیاز شما: ({user_score})\n"
-            f"لینک رفرال شما: {get_referral_link(user_id)}"
-        )
+        query.edit_message_text(f"لطفا لینک چنل خود و آیدی تلگرام خود را ارسال کنید.\nامتیاز شما: ({user_score})\nلینک رفرال شما: {get_referral_link(user_id)}")
         SECTION_WAITING_FOR_ID[user_id] = section
         return
 
     if section == "daily_score":
-        # امتیاز روزانه 1 تا 4
         if user_data.get("daily_claimed", False):
-            await query.edit_message_text("امتیاز روزانه خود را امروز گرفته‌اید.")
+            query.edit_message_text("امتیاز روزانه خود را امروز گرفته‌اید.")
         else:
             add = random.randint(1, 4)
             user_data["score"] += add
             user_data["daily_claimed"] = True
             save_json(USERS_FILE, users)
-            await query.edit_message_text(f"امتیاز روزانه شما {add} امتیاز افزوده شد.\nامتیاز کل: {user_data['score']}")
-
+            query.edit_message_text(f"امتیاز روزانه شما {add} امتیاز افزوده شد.\nامتیاز کل: {user_data['score']}")
         return
 
     if section == "profile":
-        txt = (
-            f"حساب کاربری شما:\n"
-            f"آیدی عددی: {user_id}\n"
-            f"نام کاربری: @{user_data.get('username','-')}\n"
-            f"نام کامل: {user_data.get('fullname','-')}\n"
-            f"لینک رفرال: {get_referral_link(user_id)}\n"
-            f"امتیاز: {user_data.get('score',0)}"
-        )
-        await query.edit_message_text(txt)
+        txt = (f"حساب کاربری شما:\nآیدی عددی: {user_id}\nنام کاربری: @{user_data.get('username','-')}\nنام کامل: {user_data.get('fullname','-')}\nلینک رفرال: {get_referral_link(user_id)}\nامتیاز: {user_data.get('score',0)}")
+        query.edit_message_text(txt)
         return
 
     if section == "support":
-        txt = (
-            "پشتیبانی:\n"
-            "ایدی مالک: @immmdold\n"
-            "ایدی مدیر: @likeadminx7"
-        )
-        await query.edit_message_text(txt)
+        txt = "پشتیبانی:\nایدی مالک: @immmdold\nایدی مدیر: @likeadminx7"
+        query.edit_message_text(txt)
         return
 
-
-# ====== دریافت آیدی یا لینک بعد از درخواست ======
-
+# هندل پیام بعد از درخواست (دریافت آیدی یا لینک)
 @bot_active_check
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def message_handler(update: Update, context):
     user_id = update.effective_user.id
     text = update.message.text
-
     if user_id not in SECTION_WAITING_FOR_ID:
-        return  # اگر کاربر توی حالت انتظار نباشد کاری نکن
-
+        return
     section = SECTION_WAITING_FOR_ID[user_id]
     user_data = users.get(str(user_id))
     if user_data is None:
-        await update.message.reply_text("لطفا ابتدا /start را بزنید.")
+        update.message.reply_text("لطفا ابتدا /start را بزنید.")
         return
-
-    # ارسال پیام به ادمین‌ها
     if section in ["like_freefire", "account_info", "sticker_account"]:
-        # متن ایدی عددی
         for admin_id in ADMINS:
             try:
-                await context.bot.send_message(
-                    admin_id,
-                    f"کاربر {user_data.get('fullname')} (آیدی: {user_id}) در بخش {section} پیام فرستاده:\n{text}",
-                )
-            except Exception:
+                bot.send_message(admin_id, f"کاربر {user_data.get('fullname')} (آیدی: {user_id}) در بخش {section} پیام فرستاده:\n{text}")
+            except:
                 pass
-        await update.message.reply_text(settings["auto_replies"]["default"])
+        update.message.reply_text(settings["auto_replies"]["default"])
         SECTION_WAITING_FOR_ID.pop(user_id)
-
     elif section == "free_stars":
-        # انتظار لینک چنل و آیدی
-        # فقط پیام رو فوروارد میکنیم به ادمین‌ها
         for admin_id in ADMINS:
             try:
-                await context.bot.send_message(
-                    admin_id,
-                    f"کاربر {user_data.get('fullname')} (آیدی: {user_id}) درخواست استارز رایگان فرستاد:\n{text}",
-                )
-            except Exception:
+                bot.send_message(admin_id, f"کاربر {user_data.get('fullname')} (آیدی: {user_id}) درخواست استارز رایگان فرستاد:\n{text}")
+            except:
                 pass
-        await update.message.reply_text("درخواست شما در حال بررسی است صبور باشید")
+        update.message.reply_text("درخواست شما در حال بررسی است صبور باشید")
         SECTION_WAITING_FOR_ID.pop(user_id)
 
-
-# ====== امتیاز روزانه ریست در نیمه شب ======
-
-import asyncio
-from datetime import datetime, time, timedelta
-
-async def reset_daily_scores(app: Application):
-    while True:
-        now = datetime.now()
-        next_reset = datetime.combine(now.date(), time(0, 0)) + timedelta(days=1)
-        wait_seconds = (next_reset - now).total_seconds()
-        await asyncio.sleep(wait_seconds)
-        # ریست کردن فلگ دریافت امتیاز روزانه
-        for user_id in users:
-            users[user_id]["daily_claimed"] = False
-        save_json(USERS_FILE, users)
-
-
-# ====== پنل مدیریت ======
-
+# --- پنل مدیریت ---
 @admin_only
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def admin_panel(update: Update, context):
     keyboard = [
         [InlineKeyboardButton("🔴 خاموش کردن ربات", callback_data="bot_off")],
         [InlineKeyboardButton("🟢 روشن کردن ربات", callback_data="bot_on")],
@@ -367,96 +266,132 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ تنظیم امتیاز بخش‌ها", callback_data="settings")],
         [InlineKeyboardButton("🔧 مدیریت کاربران", callback_data="manage_users")],
     ]
-    await update.message.reply_text("پنل مدیریت:", reply_markup=InlineKeyboardMarkup(keyboard))
-
+    update.message.reply_text("پنل مدیریت:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 @admin_only
-async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def admin_button_handler(update: Update, context):
     query = update.callback_query
     data = query.data
-    await query.answer()
-
+    query.answer()
     if data == "bot_off":
         config["bot_on"] = False
         save_json(CONFIG_FILE, config)
-        await query.edit_message_text("ربات خاموش شد.")
-
+        query.edit_message_text("ربات خاموش شد.")
     elif data == "bot_on":
         config["bot_on"] = True
         save_json(CONFIG_FILE, config)
-        await query.edit_message_text("ربات روشن شد.")
-
+        query.edit_message_text("ربات روشن شد.")
     elif data == "stats":
         total_users = len(users)
         total_score = sum(user["score"] for user in users.values())
         banned_users = sum(1 for user in users.values() if user.get("banned", False))
-        text = (
-            f"آمار ربات:\n"
-            f"تعداد کل کاربران: {total_users}\n"
-            f"جمع کل امتیاز: {total_score}\n"
-            f"تعداد کاربران بن شده: {banned_users}"
-        )
-        await query.edit_message_text(text)
-
+        text = f"آمار ربات:\nتعداد کل کاربران: {total_users}\nجمع کل امتیاز: {total_score}\nتعداد کاربران بن شده: {banned_users}"
+        query.edit_message_text(text)
     elif data == "user_list":
-        # لیست کاربران با ایدی
         text = "لیست کاربران:\n"
         for uid, udata in users.items():
             text += f"{udata.get('fullname', '-')}\tID: {uid}\n"
-        await query.edit_message_text(text)
-
+        query.edit_message_text(text)
     elif data == "manage_users":
-        await query.edit_message_text("برای مدیریت کاربر، دستور زیر را بفرستید:\n"
-                                      "/ban <id>\n/unban <id>\n/addscore <id> <num>\n/remscore <id> <num>")
-
+        query.edit_message_text("برای مدیریت کاربر، دستور زیر را بفرستید:\n/ban <id>\n/unban <id>\n/addscore <id> <num>\n/remscore <id> <num>")
     elif data == "settings":
         txt = "تنظیم امتیاز مورد نیاز هر بخش:\n"
         for section, score_needed in settings["sections"].items():
             txt += f"{section}: {score_needed} امتیاز\n"
-        await query.edit_message_text(txt)
+        query.edit_message_text(txt)
 
-
-# ====== دستورات مدیریت کاربران ======
-
+# دستورات مدیریتی
 @admin_only
-async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def ban_user(update: Update, context):
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text("دستور اشتباه است. استفاده: /ban <id>")
+        update.message.reply_text("دستور اشتباه است. استفاده: /ban <id>")
         return
     uid = args[0]
     if uid in users:
         users[uid]["banned"] = True
         save_json(USERS_FILE, users)
-        await update.message.reply_text(f"کاربر {uid} بن شد.")
+        update.message.reply_text(f"کاربر {uid} بن شد.")
     else:
-        await update.message.reply_text("کاربر پیدا نشد.")
-
+        update.message.reply_text("کاربر پیدا نشد.")
 
 @admin_only
-async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def unban_user(update: Update, context):
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text("دستور اشتباه است. استفاده: /unban <id>")
+        update.message.reply_text("دستور اشتباه است. استفاده: /unban <id>")
         return
     uid = args[0]
     if uid in users:
         users[uid]["banned"] = False
         save_json(USERS_FILE, users)
-        await update.message.reply_text(f"کاربر {uid} آنبن شد.")
+        update.message.reply_text(f"کاربر {uid} آنبن شد.")
     else:
-        await update.message.reply_text("کاربر پیدا نشد.")
-
+        update.message.reply_text("کاربر پیدا نشد.")
 
 @admin_only
-async def add_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def add_score(update: Update, context):
     args = context.args
     if len(args) != 2:
-        await update.message.reply_text("دستور اشتباه است. استفاده: /addscore <id> <num>")
+        update.message.reply_text("دستور اشتباه است. استفاده: /addscore <id> <num>")
         return
     uid, num = args[0], args[1]
     if uid in users:
         try:
             n = int(num)
-        except ValueError:
-            await update.message.reply_text
+        except:
+            update.message.reply_text("عدد وارد شده نامعتبر است.")
+            return
+        users[uid]["score"] += n
+        save_json(USERS_FILE, users)
+        update.message.reply_text(f"{n} امتیاز به کاربر {uid} افزوده شد.")
+    else:
+        update.message.reply_text("کاربر پیدا نشد.")
+
+@admin_only
+def rem_score(update: Update, context):
+    args = context.args
+    if len(args) != 2:
+        update.message.reply_text("دستور اشتباه است. استفاده: /remscore <id> <num>")
+        return
+    uid, num = args[0], args[1]
+    if uid in users:
+        try:
+            n = int(num)
+        except:
+            update.message.reply_text("عدد وارد شده نامعتبر است.")
+            return
+        users[uid]["score"] -= n
+        if users[uid]["score"] < 0:
+            users[uid]["score"] = 0
+        save_json(USERS_FILE, users)
+        update.message.reply_text(f"{n} امتیاز از کاربر {uid} کسر شد.")
+    else:
+        update.message.reply_text("کاربر پیدا نشد.")
+
+# هندلرها ثبت
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("menu", menu))
+dispatcher.add_handler(CallbackQueryHandler(button_handler))
+dispatcher.add_handler(CommandHandler("admin", admin_panel))
+dispatcher.add_handler(CallbackQueryHandler(admin_button_handler, pattern="^(bot_off|bot_on|stats|user_list|settings|manage_users)$"))
+dispatcher.add_handler(CommandHandler("ban", ban_user))
+dispatcher.add_handler(CommandHandler("unban", unban_user))
+dispatcher.add_handler(CommandHandler("addscore", add_score))
+dispatcher.add_handler(CommandHandler("remscore", rem_score))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+# Flask route برای دریافت webhook از تلگرام
+@app.route('/', methods=['POST'])
+def webhook():
+    if request.method == "POST":
+        update = Update.de_json(request.get_json(force=True), bot)
+        dispatcher.process_update(update)
+        return 'ok'
+    else:
+        abort(403)
+
+if __name__ == '__main__':
+    # حذف و ثبت webhook روی تلگرام
+    bot.delete_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
