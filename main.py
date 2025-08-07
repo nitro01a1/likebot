@@ -15,8 +15,7 @@ import config
 import database
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-# <<< MODIFIED: خطای اصلی در این قسمت بود که اکنون اصلاح شده است
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(name)
 
 # --- تعریف استیت‌ها و دیکشنری‌ها ---
 AWAITING_ID, AWAITING_STARS_DETAILS = 0, 1
@@ -111,21 +110,19 @@ async def service_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"✅ {cost} امتیاز از شما کسر شد. موجودی جدید: {new_points} امتیاز.\n\n"
             "لطفا ایدی عددی حساب کاربری خود در همین ربات، لینک کانال و پستی که می‌خواهید برای آن استارز زده شود را در قالب یک متن واحد برای ما ارسال کنید.\n\n"
-            "⚠️ **مهم:** در صورت عدم ارسال صحیح اطلاعات، سفارش شما انجام نخواهد شد.\n\n"
+            "⚠️ مهم: در صورت عدم ارسال صحیح اطلاعات، سفارش شما انجام نخواهد شد.\n\n"
             "برای انصراف /cancel را بزنید."
         )
         return AWAITING_STARS_DETAILS
     else:
         await update.message.reply_text(
             f"✅ {cost} امتیاز از شما کسر شد. موجودی جدید: {new_points} امتیاز.\n\n"
-            f"برای تکمیل سفارش «{update.message.text}»، آیدی عددی بازی خود را ارسال کنید. برای انصراف /cancel را بزنید."
+            f"برای تکمیل سفارش «{update.message.text}»، آیدی عددی خود را ارسال کنید. برای انصراف /cancel را بزنید."
         )
         return AWAITING_ID
 
 async def receive_stars_details_and_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    details_text = update.message.text
-    
+    user = update.effective_user; details_text = update.message.text
     service_key = context.user_data.get('service_key')
     service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
 
@@ -136,10 +133,22 @@ async def receive_stars_details_and_process(update: Update, context: ContextType
     context.user_data.clear()
     return ConversationHandler.END
 
+# <<< MODIFIED: این تابع برای اعتبارسنجی ورودی و تغییر پیام ثانویه آپدیت شد
 async def receive_id_and_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user; game_id = update.message.text
+    user = update.effective_user
+    game_id = update.message.text
     service_key = context.user_data.get('service_key')
-    
+
+    # مرحله ۱: اعتبارسنجی ورودی
+    if not game_id.isdigit():
+        await update.message.reply_text("❌ ورودی نامعتبر است. لطفاً فقط عدد وارد کنید.")
+        return AWAITING_ID # کاربر را در همین مرحله نگه می‌دارد تا دوباره تلاش کند
+
+    if not (5 <= len(game_id) <= 14):
+        await update.message.reply_text("❌ تعداد ارقام وارد شده باید بین ۵ تا ۱۴ رقم باشد. لطفاً مجدداً تلاش کنید.")
+        return AWAITING_ID # کاربر را در همین مرحله نگه می‌دارد
+
+    # مرحله ۲: ارسال به ادمین و ثبت نهایی
     service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
     forward_text = f"درخواست جدید:\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n آیدی ارسالی: {game_id}"
     await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
@@ -147,16 +156,27 @@ async def receive_id_and_process(update: Update, context: ContextTypes.DEFAULT_T
     reply_text = "درخواست شما با موفقیت ثبت شد."
     sent_message = await update.message.reply_text(f"{reply_text}\nامتیاز شما: {database.get_or_create_user(user.id, user.first_name)['points']}")
 
+    # مرحله ۳: ارسال خطای ثانویه فقط برای سرویس‌های مشخص شده
     is_secondary_error_enabled = database.get_setting('secondary_error_enabled', 'false') == 'true'
-    if is_secondary_error_enabled and service_key != 'free_stars':
-        error_message = database.get_setting('secondary_error_message', config.SECONDARY_ERROR_MESSAGE)
+    if is_secondary_error_enabled and service_key in ['free_like', 'account_info']:
+        error_message = database.get_setting('secondary_error_message')
         await sent_message.reply_text(error_message)
 
-    context.user_data.clear(); return ConversationHandler.END
+    context.user_data.clear()
+    return ConversationHandler.END
 
+# <<< MODIFIED: این تابع برای بازگرداندن امتیاز در صورت لغو آپدیت شد
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("عملیات لغو شد.", reply_markup=get_main_reply_keyboard())
-    context.user_data.clear(); return ConversationHandler.END
+    cost = context.user_data.get('cost')
+    if cost:
+        user_id = update.effective_user.id
+        database.update_points(user_id, cost)
+        await update.message.reply_text(f"عملیات لغو شد و {cost} امتیاز به شما بازگردانده شد.", reply_markup=get_main_reply_keyboard())
+    else:
+        await update.message.reply_text("عملیات لغو شد.", reply_markup=get_main_reply_keyboard())
+    
+    context.user_data.clear()
+    return ConversationHandler.END
 
 async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_user_preconditions(update, context): return
@@ -164,7 +184,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user.id, user.first_name)
     bot_username = (await context.bot.get_me()).username
     referral_link = f"https://t.me/{bot_username}?start={user.id}"
-    profile_text = f"👤 **حساب کاربری شما**\n\n🏷️ نام: {db_user['first_name']}\n🆔 آیدی: `{user.id}`\n⭐️ امتیاز: {db_user['points']}\n\n🔗 لینک دعوت شما:\n`{referral_link}`"
+    profile_text = f"👤 حساب کاربری شما\n\n🏷️ نام: {db_user['first_name']}\n🆔 آیدی: {user.id}\n⭐️ امتیاز: {db_user['points']}\n\n🔗 لینک دعوت شما:\n{referral_link}"
     await update.message.reply_text(profile_text, parse_mode=ParseMode.MARKDOWN)
 
 async def daily_bonus_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -204,7 +224,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user'), InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')],
         [InlineKeyboardButton("لیست کاربران 👥", callback_data='admin_list_users')]
     ]
-    text = "به پنل مدیریت خوش آمدید.\n\n**راهنمای امتیازدهی دستی:**\n`/addpoints <USER_ID> <AMOUNT>`\n`/removepoints <USER_ID> <AMOUNT>`"
+    text = "به پنل مدیریت خوش آمدید.\n\nراهنمای امتیازدهی دستی:\n/addpoints <USER_ID> <AMOUNT>\n/removepoints <USER_ID> <AMOUNT>"
     
     if update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
@@ -225,6 +245,7 @@ async def toggle_secondary_error_callback(update: Update, context: ContextTypes.
     database.set_setting('secondary_error_enabled', new_status)
     await admin_panel(update, context)
 
+# <<< MODIFIED: این تابع برای حذف متن اضافی از پاسخ ادمین آپدیت شد
 async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID or not update.message.reply_to_message: return
     replied_message_text = update.message.reply_to_message.text
@@ -232,11 +253,13 @@ async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
     if match:
         user_id_to_reply = int(match.group(1)); admin_text = update.message.text
         try:
-            await context.bot.send_message(chat_id=user_id_to_reply, text=f"📨 **پاسخ از طرف پشتیبانی:**\n\n{admin_text}", parse_mode=ParseMode.MARKDOWN)
+            # فقط متن خود ادمین ارسال می‌شود
+            await context.bot.send_message(chat_id=user_id_to_reply, text=admin_text)
             await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
         except Exception as e:
             await update.message.reply_text(f"❌ خطا در ارسال پیام به کاربر {user_id_to_reply}: {e}")
 
+# ... (بقیه توابع ادمین بدون تغییر باقی می‌مانند) ...
 async def manage_user_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query; await query.answer()
     await query.edit_message_text("لطفاً آیدی عددی کاربری که می‌خواهید مدیریت کنید را ارسال نمایید. برای لغو /cancel را بزنید.")
@@ -294,7 +317,7 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     users = database.get_all_users()
     if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
     user_list = "لیست کاربران:\n\n"
-    for user_data in users: user_list += f"👤 نام: {user_data[1]}\n🆔 آیدی: `{user_data[0]}`\n⭐️ امتیاز: {user_data[2]}\n\n"
+    for user_data in users: user_list += f"👤 نام: {user_data[1]}\n🆔 آیدی: {user_data[0]}\n⭐️ امتیاز: {user_data[2]}\n\n"
     await query.edit_message_text(user_list, parse_mode=ParseMode.MARKDOWN)
 
 # ==============================================================================
@@ -306,8 +329,9 @@ def main() -> None:
         database.set_setting('bot_status', 'true')
     if not database.get_setting('secondary_error_enabled'):
         database.set_setting('secondary_error_enabled', 'false')
+    # <<< MODIFIED: متن پیام ثانویه به درخواست شما تغییر کرد
     if not database.get_setting('secondary_error_message'):
-        database.set_setting('secondary_error_message', "⚠️ سفارش شما ممکن است با کمی تاخیر انجام شود.")
+        database.set_setting('secondary_error_message', "خطا❌در اتصال به سرور مشکلی پیش امد. با ادمین تماس بگیرید @likeadminx7")
 
     application = Application.builder().token(config.BOT_TOKEN).build()
 
@@ -345,5 +369,5 @@ def main() -> None:
     logger.info(f"Starting webhook bot on port {port}")
     application.run_webhook(listen="0.0.0.0", port=port, url_path=config.BOT_TOKEN, webhook_url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}")
 
-if __name__ == "__main__":
+if name == "main":
     main()
