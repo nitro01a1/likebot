@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import random
 import os
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -12,6 +12,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
     ConversationHandler,
+    CallbackQueryHandler,
 )
 from telegram.constants import ParseMode
 
@@ -34,7 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- متغیرهای ConversationHandler ---
-(GET_GAME_ID, GET_STARS_INFO, GET_USER_ID_FOR_MANAGE, MANAGE_USER_ACTION) = range(4)
+(GET_GAME_ID, GET_STARS_INFO, ADMIN_PANEL, MANAGE_USER_ID, MANAGE_USER_ACTION) = range(5)
 
 # --- ثابت‌های متنی برای دکمه‌ها (برای جلوگیری از خطای تایپی) ---
 BTN_LIKE_FF = "🔥 لایک فری فایر"
@@ -44,7 +45,6 @@ BTN_FREE_STARS = "🌟 استارز رایگان"
 BTN_DAILY_BONUS = "🎁 امتیاز روزانه"
 BTN_MY_ACCOUNT = "👤 حساب کاربری"
 BTN_SUPPORT = "📞 پشتیبانی"
-BTN_ADMIN_PANEL = "🔒 پنل مدیریت"
 
 
 # --- توابع کار با پایگاه داده (JSON) ---
@@ -86,17 +86,12 @@ def generate_referral_link(user_id: int, bot_username: str) -> str:
 
 # --- نمایش منوی اصلی با کیبورد ---
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     keyboard_buttons = [
         [KeyboardButton(BTN_LIKE_FF), KeyboardButton(BTN_ACC_INFO)],
         [KeyboardButton(BTN_ACC_STICKER), KeyboardButton(BTN_FREE_STARS)],
         [KeyboardButton(BTN_DAILY_BONUS)],
         [KeyboardButton(BTN_MY_ACCOUNT), KeyboardButton(BTN_SUPPORT)]
     ]
-    # اگر کاربر ادمین باشد، دکمه پنل مدیریت را اضافه کن
-    if user_id in ADMIN_IDS:
-        keyboard_buttons.append([KeyboardButton(BTN_ADMIN_PANEL)])
-
     reply_markup = ReplyKeyboardMarkup(keyboard_buttons, resize_keyboard=True)
     await update.message.reply_text("خوش آمدید! لطفا یکی از گزینه‌ها را انتخاب کنید:", reply_markup=reply_markup)
 
@@ -134,7 +129,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_text = update.message.text
     user_id = update.effective_user.id
     
-    # بررسی عضویت اجباری قبل از هر کاری
     if not await is_member(user_id, context):
         await update.message.reply_text("❌ شما هنوز در همه کانال‌ها عضو نیستید! لطفا عضو شوید و دوباره تلاش کنید.")
         return
@@ -146,13 +140,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await support(update, context)
     elif user_text == BTN_DAILY_BONUS:
         await daily_bonus(update, context)
-    elif user_text in [BTN_LIKE_FF, BTN_ACC_INFO, BTN_ACC_STICKER, BTN_FREE_STARS]:
-        return await handle_service_request(update, context)
-    elif user_text == BTN_ADMIN_PANEL and user_id in ADMIN_IDS:
-        await admin_panel(update, context)
-    # اینجا می‌توانید برای پیام‌های دیگر منطق اضافه کنید
-    # else:
-    #     await show_main_menu(update, context)
 
 
 # --- کنترلرهای بخش‌های کاربری ---
@@ -205,10 +192,8 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- مدیریت درخواست‌های سرویس (ConversationHandler) ---
 async def handle_service_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service_map = {
-        BTN_LIKE_FF: "like_ff",
-        BTN_ACC_INFO: "account_info",
-        BTN_ACC_STICKER: "account_sticker",
-        BTN_FREE_STARS: "free_stars"
+        BTN_LIKE_FF: "like_ff", BTN_ACC_INFO: "account_info",
+        BTN_ACC_STICKER: "account_sticker", BTN_FREE_STARS: "free_stars"
     }
     service_key = service_map.get(update.message.text)
     context.user_data['service_key'] = service_key
@@ -247,7 +232,6 @@ async def handle_service_request(update: Update, context: ContextTypes.DEFAULT_T
         return GET_GAME_ID
 
 async def process_user_input_and_forward(update: Update, context: ContextTypes.DEFAULT_TYPE, success_message: str, admin_title: str):
-    """تابع کمکی برای پردازش ورودی کاربر و ارسال به ادمین"""
     user_message = update.message.text
     user = update.effective_user
     service_key = context.user_data.get('service_key', 'نامشخص')
@@ -260,17 +244,14 @@ async def process_user_input_and_forward(update: Update, context: ContextTypes.D
         except Exception as e:
             logger.error(f"Failed to send message to admin {admin_id}: {e}")
 
-    # ارسال پیام موفقیت به کاربر
     await update.message.reply_text(success_message)
     
-    # *** حل مشکل پیام ثانویه ***
-    # حالا پیام ثانویه مستقیم بعد از پیام موفقیت ارسال می‌شود
     data = load_data()
     secondary_reply = data["settings"]["secondary_reply"].get(service_key)
     if secondary_reply:
         await update.message.reply_text(secondary_reply)
         
-    await show_main_menu(update, context) # نمایش مجدد منوی اصلی
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 async def get_game_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -285,20 +266,146 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- پنل مدیریت (بدون تغییر) ---
+# --- پنل مدیریت ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # این بخش برای سادگی بدون تغییر باقی مانده و همچنان از Inline Keyboard استفاده می‌کند
-    # می‌توانید آن را نیز به Reply Keyboard تغییر دهید
-    # (کد پنل ادمین که قبلا داشتید را اینجا قرار دهید)
-    pass
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("شما دسترسی به این بخش را ندارید.")
+        return
+
+    data = load_data()
+    bot_status = "روشن ✅" if data.get("bot_status", "on") == "on" else "خاموش ❌"
+    user_count = len(data.get("users", {}))
+
+    keyboard = [
+        [InlineKeyboardButton(f"وضعیت ربات: {bot_status}", callback_data="admin_toggle_bot")],
+        [InlineKeyboardButton(f"آمار کاربران: {user_count} نفر", callback_data="admin_stats")],
+        [InlineKeyboardButton("مدیریت کاربر", callback_data="admin_manage_user")],
+        [InlineKeyboardButton("لیست کاربران", callback_data="admin_user_list")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text("به پنل مدیریت خوش آمدید.", reply_markup=reply_markup)
+    return ADMIN_PANEL
+
+async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = load_data()
+
+    if query.data == "admin_toggle_bot":
+        data['bot_status'] = 'off' if data.get('bot_status', 'on') == 'on' else 'on'
+        save_data(data)
+        await admin_panel(query, context) # Refresh panel
+
+    elif query.data == "admin_stats":
+        user_count = len(data.get("users", {}))
+        await query.answer(f"تعداد کل کاربران: {user_count} نفر", show_alert=True)
+    
+    elif query.data == "admin_user_list":
+        users = data.get("users", {})
+        if not users:
+            text = "هیچ کاربری ثبت نشده است."
+        else:
+            text = "لیست کاربران:\n\n"
+            for uid, udata in users.items():
+                text += f"👤 نام: {udata.get('name', 'N/A')}\n🆔 آیدی: `{uid}`\n\n"
+        
+        keyboard = [[InlineKeyboardButton("بازگشت", callback_data="admin_panel_back")]]
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data == "admin_manage_user":
+        await query.edit_message_text("لطفا آیدی عددی کاربری که می‌خواهید مدیریتش کنید را ارسال نمایید:")
+        return MANAGE_USER_ID
+
+    elif query.data == "admin_panel_back":
+        await query.delete_message()
+        await admin_panel(update, context)
+        return ADMIN_PANEL
+    
+    return ADMIN_PANEL
+
+
+async def get_user_id_for_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This is now part of a conversation, so it expects a message
+    target_user_id = update.message.text
+    if not target_user_id.isdigit():
+        await update.message.reply_text("آیدی نامعتبر است. لطفا یک آیدی عددی صحیح وارد کنید.")
+        return MANAGE_USER_ID
+
+    data = load_data()
+    if target_user_id not in data["users"]:
+        await update.message.reply_text("کاربری با این آیدی یافت نشد.")
+        return MANAGE_USER_ID
+    
+    context.user_data['target_user_id'] = target_user_id
+    user_info = data["users"][target_user_id]
+    points = user_info.get("points", 0)
+    ban_text = "رفع بن" if user_info.get("banned", False) else "بن کردن"
+
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن امتیاز", callback_data=f"manage_add_{target_user_id}")],
+        [InlineKeyboardButton("➖ کسر امتیاز", callback_data=f"manage_sub_{target_user_id}")],
+        [InlineKeyboardButton(f"🚫 {ban_text}", callback_data=f"manage_ban_{target_user_id}")],
+        [InlineKeyboardButton("بازگشت", callback_data="admin_panel_back")]
+    ]
+    await update.message.reply_text(f"مدیریت کاربر `{target_user_id}`\nامتیاز فعلی: {points}\n\nچه کاری می‌خواهید انجام دهید؟", 
+                                    reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    
+    return MANAGE_USER_ACTION
+
+
+async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split('_')
+    action = parts[1]
+    target_user_id = parts[2]
+    
+    data = load_data()
+    user_data = data["users"][target_user_id]
+    
+    if action == "add":
+        user_data["points"] = user_data.get("points", 0) + 1
+        await query.answer("1 امتیاز اضافه شد.")
+    elif action == "sub":
+        user_data["points"] = user_data.get("points", 0) - 1
+        await query.answer("1 امتیاز کسر شد.")
+    elif action == "ban":
+        current_status = user_data.get("banned", False)
+        user_data["banned"] = not current_status
+        await query.answer(f"کاربر {'از بن خارج شد' if current_status else 'بن شد'}.")
+
+    save_data(data)
+    
+    # Refresh the management message
+    points = user_data.get("points", 0)
+    ban_text = "رفع بن" if user_data.get("banned", False) else "بن کردن"
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن امتیاز", callback_data=f"manage_add_{target_user_id}")],
+        [InlineKeyboardButton("➖ کسر امتیاز", callback_data=f"manage_sub_{target_user_id}")],
+        [InlineKeyboardButton(f"🚫 {ban_text}", callback_data=f"manage_ban_{target_user_id}")],
+        [InlineKeyboardButton("بازگشت", callback_data="admin_panel_back")]
+    ]
+    await query.edit_message_text(f"مدیریت کاربر `{target_user_id}`\nامتیاز فعلی: {points}", 
+                                  reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    return MANAGE_USER_ACTION
 
 
 # --- تابع اصلی ---
 def main() -> None:
+    """Run the bot."""
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # فیلتر برای دکمه‌های سرویس
+    service_entry_filter = (
+        filters.Text([BTN_LIKE_FF]) | filters.Text([BTN_ACC_INFO]) |
+        filters.Text([BTN_ACC_STICKER]) | filters.Text([BTN_FREE_STARS])
+    )
+
     service_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & filters.In([BTN_LIKE_FF, BTN_ACC_INFO, BTN_ACC_STICKER, BTN_FREE_STARS]), handle_service_request)],
+        entry_points=[MessageHandler(service_entry_filter, handle_service_request)],
         states={
             GET_GAME_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_game_id)],
             GET_STARS_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_stars_info)],
@@ -306,14 +413,25 @@ def main() -> None:
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
+    admin_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('admin', admin_panel)],
+        states={
+            ADMIN_PANEL: [CallbackQueryHandler(handle_admin_callbacks, pattern='^admin_')],
+            MANAGE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_id_for_manage)],
+            MANAGE_USER_ACTION: [CallbackQueryHandler(manage_user_action, pattern='^manage_')]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), CallbackQueryHandler(handle_admin_callbacks, pattern='admin_panel_back')],
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(service_conv_handler)
+    application.add_handler(admin_conv_handler)
     
-    # این هندلر اصلی برای تمام دکمه‌های کیبورد و پیام‌های عادی است
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 
     logger.info("ربات در حال اجرا است...")
     application.run_polling()
+
 
 if __name__ == "__main__":
     main()
