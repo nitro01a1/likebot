@@ -122,7 +122,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id_str = str(user.id)
 
     if user_id_str not in data.get("users", {}):
-        data.setdefault("users", {})[user_id_str] = {"is_banned": False}
+        data.setdefault("users", {})[user_id_str] = {"is_banned": False, "last_bonus": None}
 
     if context.args:
         try:
@@ -172,7 +172,7 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     data["users"][user_id_str]["last_bonus"] = datetime.now().isoformat()
     save_data(data, DATA_FILE)
 
-    await update.message.reply_text(f"🎉 تبریک! شما **{bonus_points}** امتیاز روزانه دریافت کردید.")
+    await update.message.reply_text(f"🎉 تبریک! شما **{bonus_points}** امتیاز روزانه دریافت کردید.", parse_mode='Markdown')
 
 @user_check
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -186,7 +186,7 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     score = data.get("referral_counts", {}).get(str(user.id), 0)
     bot_username = (await context.bot.get_me()).username
     referral_link = f"https://t.me/{bot_username}?start={user.id}"
-    info_text = (f"👤 اطلاعات اکانت شما\n\n▫️ آیدی عددی: {user.id}\n▫️ امتیاز شما: {score}\n\n🔗 لینک دعوت شما:\n{referral_link}")
+    info_text = (f"👤 اطلاعات اکانت شما\n\n▫️ آیدی عددی: {user.id}\n▫️ امتیاز شما: **{score}**\n\n🔗 لینک دعوت شما:\n{referral_link}")
     await update.message.reply_text(info_text, parse_mode='Markdown')
 
 async def generic_request_start(update: Update, context: ContextTypes.DEFAULT_TYPE, service_key: str, prompt_message: str, next_state: int) -> int:
@@ -355,16 +355,7 @@ async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا عدد جدید برای نیازمندی امتیاز را وارد کنید:", reply_markup=ReplyKeyboardRemove())
-    service_key = context.user_data.get('current_service_key')
-    if service_key == "like":
-        return AWAITING_NEW_LIKE_COST
-    elif service_key == "star":
-        return AWAITING_NEW_STAR_COST
-    elif service_key == "ff":
-        return AWAITING_NEW_FF_COST
-    elif service_key == "sticker":
-        return AWAITING_NEW_STICKER_COST
-    return ConversationHandler.END
+    return AWAITING_NEW_LIKE_COST  # برای همه سرویس‌ها یکسان فرض می‌کنیم
 
 async def set_autoreply_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا متن جدید برای پاسخ خودکار را ارسال کنید:", reply_markup=ReplyKeyboardRemove())
@@ -397,7 +388,7 @@ async def set_new_cost_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         save_data(settings, SETTINGS_FILE)
         await update.message.reply_text(f"✅ هزینه با موفقیت به **{new_cost}** تغییر یافت.", parse_mode='Markdown')
     except (ValueError, KeyError):
-        await update.message.reply_text("❌ عملیات ناموفق بود.")
+        await update.message.reply_text("❌ عملیات ناموفق بود. لطفاً یک عدد معتبر وارد کنید.")
     await bot_settings(update, context)
     return ConversationHandler.END
 
@@ -433,11 +424,15 @@ async def manage_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.text
+    if not user_id.isdigit():
+        await update.message.reply_text("❌ لطفاً یک آیدی عددی معتبر وارد کنید.")
+        return AWAITING_USER_ID_FOR_MGMT
     context.user_data['target_user_id'] = user_id
     keyboard = [
         ["اضافه کردن امتیاز"],
         ["کم کردن امتیاز"],
         ["بن کردن کاربر"],
+        ["حذف کاربر"],
         ["بازگشت به پنل ادمین"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -459,6 +454,18 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     data["users"][str(user_id)]["is_banned"] = True
     save_data(data, DATA_FILE)
     await update.message.reply_text(f"✅ کاربر با آیدی `{user_id}` با موفقیت بن شد.")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data.get('target_user_id')
+    data = load_data(DATA_FILE, {"users": {}, "referral_counts": {}})
+    if str(user_id) in data.get("users", {}):
+        del data["users"][str(user_id)]
+    if str(user_id) in data.get("referral_counts", {}):
+        del data["referral_counts"][str(user_id)]
+    save_data(data, DATA_FILE)
+    await update.message.reply_text(f"✅ کاربر با آیدی `{user_id}` با موفقیت حذف شد.")
     await admin_panel(update, context)
     return ConversationHandler.END
 
@@ -517,6 +524,7 @@ def main() -> None:
                 MessageHandler(filters.Regex(r"^اضافه کردن امتیاز$"), add_points),
                 MessageHandler(filters.Regex(r"^کم کردن امتیاز$"), subtract_points),
                 MessageHandler(filters.Regex(r"^بن کردن کاربر$"), ban_user),
+                MessageHandler(filters.Regex(r"^حذف کاربر$"), delete_user),
                 MessageHandler(filters.Regex(r"^بازگشت به پنل ادمین$"), admin_panel)
             ],
             AWAITING_NEW_LIKE_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
