@@ -64,12 +64,12 @@ def user_check(func):
 
         settings = load_data(SETTINGS_FILE, {"is_bot_active": True})
         if not settings.get("is_bot_active", True) and user.id not in ADMIN_IDS:
-            await update.message.reply_text("🔴 ربات در حال حاضر خاموش است.")
+            await update.message.reply_text("🔴 ربات خاموشه.")
             return
 
         user_data = load_data(DATA_FILE, {"users": {}, "referral_counts": {}})
         if user_data.get("users", {}).get(str(user.id), {}).get("is_banned", False):
-            await update.message.reply_text("❌ شما بن شده‌اید.")
+            await update.message.reply_text("❌ بن شدی.")
             return
 
         not_joined_channels = []
@@ -83,18 +83,19 @@ def user_check(func):
                 return
 
         if not_joined_channels:
-            keyboard = [[InlineKeyboardButton(f"عضویت در کانال", url=f"https://t.me/{channel_id[1:]}")] for channel_id in not_joined_channels]
+            keyboard = [[InlineKeyboardButton(f"عضویت", url=f"https://t.me/{channel_id[1:]}")] for channel_id in not_joined_channels]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("❌ لطفاً در کانال‌ها عضو شوید:", reply_markup=reply_markup)
+            await update.message.reply_text("❌ عضو کانال شو:", reply_markup=reply_markup)
             return
 
-        if "pending_referrer" in user_data.get("users", {}).get(str(user.id), {}):
-            referrer_id = user_data["users"][str(user.id)]["pending_referrer"]
+        user_info = user_data.get("users", {}).get(str(user.id), {})
+        if "pending_referrer" in user_info:
+            referrer_id = user_info["pending_referrer"]
             user_data.setdefault("referral_counts", {})[str(referrer_id)] = user_data.get("referral_counts", {}).get(str(referrer_id), 0) + 1
             del user_data["users"][str(user.id)]["pending_referrer"]
             save_data(user_data, DATA_FILE)
             try:
-                await context.bot.send_message(chat_id=referrer_id, text="✅ کاربر جدید با لینک شما.")
+                await context.bot.send_message(chat_id=referrer_id, text="✅ کاربر جدید با لینکت.")
             except Exception as e:
                 logger.warning(f"Referral notify failed for {referrer_id}: {e}")
 
@@ -105,7 +106,7 @@ def admin_only(func):
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         if update.effective_user.id not in ADMIN_IDS:
-            await update.message.reply_text("❌ دسترسی ندارید.")
+            await update.message.reply_text("❌ دسترسی نداری.")
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -132,7 +133,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     save_data(data, DATA_FILE)
     keyboard = [["لایک رایگان🔥", "استارز رایگان⭐"], ["امتیاز روزانه🎁", "اطلاعات اکانت 👤"], ["پشتیبانی📱"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("به ربات خوش آمدید!", reply_markup=reply_markup)
+    await update.message.reply_text("خوش اومدی!", reply_markup=reply_markup)
 
 @user_check
 async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -143,14 +144,14 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     last_bonus = user_info.get("last_bonus")
     if last_bonus and datetime.fromisoformat(last_bonus) > datetime.now() - timedelta(hours=24):
-        await update.message.reply_text("❌ ۲۴ ساعت صبر کنید.")
+        await update.message.reply_text("❌ ۲۴ ساعت صبر کن.")
         return
 
     points = random.randint(1, 5)
     data.setdefault("referral_counts", {})[user_id_str] = data.get("referral_counts", {}).get(user_id_str, 0) + points
     data["users"][user_id_str]["last_bonus"] = datetime.now().isoformat()
     save_data(data, DATA_FILE)
-    await update.message.reply_text(f"🎉 {points} امتیاز گرفتید!", parse_mode='Markdown')
+    await update.message.reply_text(f"🎉 {points} امتیاز گرفتی!", parse_mode='Markdown')
 
 @user_check
 async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -174,7 +175,7 @@ async def generic_request_start(update: Update, context: ContextTypes.DEFAULT_TY
     score = user_data.get("referral_counts", {}).get(str(user.id), 0)
     if score < cost:
         bot_username = (await context.bot.get_me()).username
-        await update.message.reply_text(f"❌ امتیاز کمه ({cost} نیاز است، شما {score} دارید).")
+        await update.message.reply_text(f"❌ امتیاز کمه ({cost} نیازه، تو {score} داری).")
         return ConversationHandler.END
 
     user_data.setdefault("referral_counts", {})[str(user.id)] = score - cost
@@ -185,21 +186,34 @@ async def generic_request_start(update: Update, context: ContextTypes.DEFAULT_TY
 async def free_like_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await generic_request_start(update, context, "like", "آیدی رو بفرست:", AWAITING_LIKE_ID)
 
+async def free_star_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await generic_request_start(update, context, "star", "آیدی و چنل رو بفرست:", AWAITING_STAR_INFO)
+
 async def forward_like_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     text = update.message.text
     for admin_id in ADMIN_IDS:
-        await context.bot.send_message(chat_id=admin_id, text=f"📩 درخواست لایک از {user.id}: {text}")
-    await update.message.reply_text("✅ درخواست ارسال شد.")
+        await context.bot.send_message(chat_id=admin_id, text=f"📩 لایک از {user.id}: {text}")
+    await update.message.reply_text("✅ درخواستت رفت.")
+    await start(update, context)
+    return ConversationHandler.END
+
+async def forward_star_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    text = update.message.text
+    for admin_id in ADMIN_IDS:
+        await context.bot.send_message(chat_id=admin_id, text=f"⭐ استار از {user.id}: {text}")
+    await update.message.reply_text("✅ درخواستت رفت.")
     await start(update, context)
     return ConversationHandler.END
 
 # توابع پنل ادمین
 @admin_only
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [["آمار ربات 📊", "مدیریت کاربر 🛠"], ["لیست کاربران 👥", "تنظیمات ربات ⚙️"], ["بازگشت"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("پنل ادمین:", reply_markup=reply_markup)
+    return AWAITING_ACTION_FOR_USER
 
 @admin_only
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -218,14 +232,14 @@ async def send_user_list_page(update: Update, context: ContextTypes.DEFAULT_TYPE
     paginated_users = users[start_idx:end_idx]
 
     if not paginated_users:
-        await update.message.reply_text("📋 کاربرانی وجود ندارد.")
+        await update.message.reply_text("📋 کاربری نیست.")
         return
 
     text = "👥 لیست کاربران:\n"
     for user_id in paginated_users:
         score = data.get("referral_counts", {}).get(user_id, 0)
         banned = data.get("users", {}).get(user_id, {}).get("is_banned", False)
-        text += f"{user_id} - امتیاز: {score} - وضعیت: {'بن‌شده' if banned else 'فعال'}\n"
+        text += f"{user_id} - امتیاز: {score} - {'بن‌شده' if banned else 'فعال'}\n"
 
     keyboard = []
     if page > 0:
@@ -247,7 +261,7 @@ async def user_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @admin_only
 async def manage_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("آیدی کاربر را وارد کنید:")
+    await update.message.reply_text("آیدی کاربر را وارد کن:")
     return AWAITING_USER_ID_FOR_MGMT
 
 async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -262,11 +276,11 @@ async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return AWAITING_ACTION_FOR_USER
 
 async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("مقدار امتیاز را وارد کنید:")
+    await update.message.reply_text("مقدار امتیاز را وارد کن:")
     return AWAITING_POINTS_TO_ADD
 
 async def subtract_points(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("مقدار امتیاز را وارد کنید:")
+    await update.message.reply_text("مقدار امتیاز را وارد کن:")
     return AWAITING_POINTS_TO_SUBTRACT
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -304,7 +318,7 @@ async def process_points(update: Update, context: ContextTypes.DEFAULT_TYPE, act
         save_data(data, DATA_FILE)
         await update.message.reply_text(f"✅ {points} {'اضافه' if action == 'add' else 'کم'} شد.")
     except ValueError:
-        await update.message.reply_text("❌ عدد وارد کنید.")
+        await update.message.reply_text("❌ عدد وارد کن.")
     await admin_panel(update, context)
     return ConversationHandler.END
 
@@ -312,7 +326,7 @@ async def process_points(update: Update, context: ContextTypes.DEFAULT_TYPE, act
 async def bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [["تنظیم هزینه لایک", "تنظیم هزینه استار"], ["تنظیم هزینه فری فایر", "تنظیم هزینه استیکر"], ["پاسخ خودکار", "خاموش/روشن"], ["بازگشت"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("تنظیمات را انتخاب کنید:", reply_markup=reply_markup)
+    await update.message.reply_text("تنظیمات را انتخاب کن:", reply_markup=reply_markup)
     return AWAITING_ACTION_FOR_USER
 
 async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -327,12 +341,12 @@ async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("❌ گزینه نامعتبر.")
         return AWAITING_ACTION_FOR_USER
     context.user_data['current_setting'] = service_key
-    await update.message.reply_text("مقدار جدید را وارد کنید:")
+    await update.message.reply_text("مقدار جدید را وارد کن:")
     return AWAITING_NEW_COST
 
 async def set_autoreply_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['current_setting'] = "autoreply"
-    await update.message.reply_text("متن پاسخ خودکار را وارد کنید:")
+    await update.message.reply_text("متن پاسخ خودکار را وارد کن:")
     return AWAITING_AUTOREPLY_MSG
 
 async def toggle_bot_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -353,7 +367,7 @@ async def set_new_cost_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         save_data(settings, SETTINGS_FILE)
         await update.message.reply_text(f"✅ هزینه به {new_cost} تغییر کرد.")
     except ValueError:
-        await update.message.reply_text("❌ عدد مثبت وارد کنید.")
+        await update.message.reply_text("❌ عدد مثبت وارد کن.")
     await bot_settings(update, context)
     return ConversationHandler.END
 
@@ -386,10 +400,12 @@ def main() -> None:
         entry_points=[CommandHandler('start', start), CommandHandler('admin', admin_panel)],
         states={
             AWAITING_LIKE_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_like_id)],
+            AWAITING_STAR_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_star_info)],
             AWAITING_USER_ID_FOR_MGMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, manage_user_action)],
             AWAITING_ACTION_FOR_USER: [
-                MessageHandler(filters.Regex(r"^(اضافه امتیاز|کم کردن امتیاز|بن کردن|حذف کاربر|بازگشت)$"), lambda u, c: globals()[u.message.text.replace(" ", "_")] if u.message.text in ["اضافه امتیاز", "کم کردن امتیاز"] else globals()[u.message.text.replace(" ", "_")](u, c)),
-                MessageHandler(filters.Regex(r"^(تنظیم هزینه (لایک|استار|فری فایر|استیکر)|پاسخ خودکار|خاموش/روشن|بازگشت)$"), lambda u, c: set_cost_start(u, c) if "تنظیم هزینه" in u.message.text else set_autoreply_start(u, c) if u.message.text == "پاسخ خودکار" else toggle_bot_status(u, c) if u.message.text == "خاموش/روشن" else bot_settings(u, c))
+                MessageHandler(filters.Regex(r"^(آمار ربات|مدیریت کاربر|لیست کاربران|تنظیمات ربات|بازگشت)$"), lambda u, c: globals()[u.message.text.replace(" ", "_")] if u.message.text in ["آمار ربات", "مدیریت کاربر", "لیست کاربران", "تنظیمات ربات"] else start(u, c)),
+                MessageHandler(filters.Regex(r"^(اضافه امتیاز|کم کردن امتیاز|بن کردن|حذف کاربر)$"), lambda u, c: globals()[u.message.text.replace(" ", "_")] if u.message.text in ["اضافه امتیاز", "کم کردن امتیاز", "بن کردن", "حذف کاربر"] else admin_panel(u, c)),
+                MessageHandler(filters.Regex(r"^(تنظیم هزینه (لایک|استار|فری فایر|استیکر)|پاسخ خودکار|خاموش/روشن)$"), lambda u, c: set_cost_start(u, c) if "تنظیم هزینه" in u.message.text else set_autoreply_start(u, c) if u.message.text == "پاسخ خودکار" else toggle_bot_status(u, c))
             ],
             AWAITING_POINTS_TO_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: process_points(u, c, "add"))],
             AWAITING_POINTS_TO_SUBTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: process_points(u, c, "subtract"))],
@@ -404,6 +420,7 @@ def main() -> None:
     application.add_handler(CommandHandler("users", list_users))
     application.add_handler(CallbackQueryHandler(user_list_callback, pattern=r'^user_list_\d+$'))
     application.add_handler(MessageHandler(filters.Regex(r"^لایک رایگان🔥$"), free_like_request))
+    application.add_handler(MessageHandler(filters.Regex(r"^استارز رایگان⭐$"), free_star_request))
     application.add_handler(MessageHandler(filters.Regex(r"^امتیاز روزانه🎁$"), daily_bonus))
     application.add_handler(MessageHandler(filters.Regex(r"^اطلاعات اکانت 👤$"), account_info))
     application.add_handler(MessageHandler(filters.Regex(r"^پشتیبانی📱$"), support))
