@@ -1,11 +1,13 @@
 import json
-import random
 import os
+import random
 from functools import wraps
+
 from flask import Flask, request, abort
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
-import asyncio
+import filetype  # جایگزین imghdr
+
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 # ====== تنظیمات اولیه ======
 BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"
@@ -16,13 +18,14 @@ WEBHOOK_URL = "https://likebot-hxwc.onrender.com"  # آدرس وب‌سرویس 
 DATA_FOLDER = "data"
 USERS_FILE = os.path.join(DATA_FOLDER, "users.json")
 SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.json")
-CONFIG_FILE = os.path.join(DATA_FOLDER, "config.json")
 
 if not os.path.exists(DATA_FOLDER):
     os.mkdir(DATA_FOLDER)
+
 if not os.path.exists(USERS_FILE):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump({}, f)
+
 if not os.path.exists(SETTINGS_FILE):
     default_settings = {
         "sections": {
@@ -39,10 +42,6 @@ if not os.path.exists(SETTINGS_FILE):
     }
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(default_settings, f, ensure_ascii=False, indent=4)
-if not os.path.exists(CONFIG_FILE):
-    config = {"bot_on": True}
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f)
 
 # بارگذاری داده‌ها
 def load_json(filename):
@@ -55,17 +54,15 @@ def save_json(filename, data):
 
 users = load_json(USERS_FILE)
 settings = load_json(SETTINGS_FILE)
-config = load_json(CONFIG_FILE)
 
-# وب‌سرور Flask
 app = Flask(__name__)
 bot = Bot(token=BOT_TOKEN)
-dispatcher = Dispatcher(bot=bot, update_queue=None, workers=0)
+dispatcher = Dispatcher(bot, None, workers=0)
 
-# دکوراتور چک ادمین
+# دکوراتورها
 def admin_only(func):
     @wraps(func)
-    def wrapper(update: Update, context):
+    def wrapped(update, context):
         user_id = update.effective_user.id
         if user_id not in ADMINS:
             if update.message:
@@ -74,22 +71,21 @@ def admin_only(func):
                 update.callback_query.answer("⚠️ شما دسترسی ادمین ندارید.", show_alert=True)
             return
         return func(update, context)
-    return wrapper
+    return wrapped
 
-# چک فعال بودن ربات
 def bot_active_check(func):
     @wraps(func)
-    def wrapper(update: Update, context):
-        if not config.get("bot_on", True):
+    def wrapped(update, context):
+        if not settings.get("bot_active", True):
             if update.message:
                 update.message.reply_text("ربات در حال حاضر خاموش است.")
             elif update.callback_query:
                 update.callback_query.answer("ربات در حال حاضر خاموش است.", show_alert=True)
             return
         return func(update, context)
-    return wrapper
+    return wrapped
 
-# ساخت لینک رفرال
+# لینک رفرال
 def get_referral_link(user_id):
     return f"https://t.me/YourBotUserName?start={user_id}"
 
@@ -108,7 +104,6 @@ def add_new_user(user_id, username, fullname, ref=None):
         if ref and str(ref) in users:
             users[str(ref)]["score"] += 1
             users[str(ref)]["referrals"].append(user_id)
-            # پیام به رفرال (ادمین ها)
             for admin_id in ADMINS:
                 try:
                     bot.send_message(admin_id, f"کاربر {users[str(user_id)]['fullname']} با لینک شما وارد شد و یک امتیاز به شما افزوده شد.")
@@ -116,9 +111,20 @@ def add_new_user(user_id, username, fullname, ref=None):
                     pass
         save_json(USERS_FILE, users)
 
-# هندلر استارت و رفرال
+# چک عضویت در کانال‌ها
+def is_member(user_id):
+    for channel in CHANNELS:
+        try:
+            member = bot.get_chat_member(channel, user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False
+        except:
+            return False
+    return True
+
+# هندلر /start
 @bot_active_check
-def start(update: Update, context):
+def start(update, context):
     args = context.args
     user = update.effective_user
     user_id = user.id
@@ -131,21 +137,13 @@ def start(update: Update, context):
         except:
             ref = None
     add_new_user(user_id, username, fullname, ref)
-    text = f"سلام {fullname}!\nامتیاز شما: ({users[str(user_id)]['score']})\nلینک رفرال شما: {get_referral_link(user_id)}\nلطفا ابتدا در کانال‌های زیر عضو شوید:\n" + "\n".join(CHANNELS)
+    text = (f"سلام {fullname}!\n"
+            f"امتیاز شما: ({users[str(user_id)]['score']})\n"
+            f"لینک رفرال شما: {get_referral_link(user_id)}\n"
+            f"لطفا ابتدا در کانال‌های زیر عضو شوید:\n" + "\n".join(CHANNELS))
     update.message.reply_text(text)
 
-# چک عضویت در چنل‌ها (غیر async به خاطر Flask)
-def is_member(user_id):
-    for channel in CHANNELS:
-        try:
-            member = bot.get_chat_member(channel, user_id)
-            if member.status not in ["member", "administrator", "creator"]:
-                return False
-        except:
-            return False
-    return True
-
-# منو اصلی
+# منو
 def get_main_menu(user_id):
     score = users.get(str(user_id), {}).get("score", 0)
     menu = [
@@ -160,7 +158,7 @@ def get_main_menu(user_id):
     return InlineKeyboardMarkup(menu)
 
 @bot_active_check
-def menu(update: Update, context):
+def menu(update, context):
     user_id = update.effective_user.id
     if str(user_id) not in users:
         update.message.reply_text("لطفا ابتدا /start را بزنید.")
@@ -171,11 +169,10 @@ def menu(update: Update, context):
     markup = get_main_menu(user_id)
     update.message.reply_text(f"سلام، امتیاز شما: ({users[str(user_id)]['score']})\nلینک رفرال شما: {get_referral_link(user_id)}\nبخش مورد نظر را انتخاب کنید:", reply_markup=markup)
 
-# حالت انتظار برای دریافت آیدی یا لینک
 SECTION_WAITING_FOR_ID = {}
 
 @bot_active_check
-def button_handler(update: Update, context):
+def button_handler(update, context):
     query = update.callback_query
     user_id = query.from_user.id
     query.answer()
@@ -217,7 +214,12 @@ def button_handler(update: Update, context):
         return
 
     if section == "profile":
-        txt = (f"حساب کاربری شما:\nآیدی عددی: {user_id}\nنام کاربری: @{user_data.get('username','-')}\nنام کامل: {user_data.get('fullname','-')}\nلینک رفرال: {get_referral_link(user_id)}\nامتیاز: {user_data.get('score',0)}")
+        txt = (f"حساب کاربری شما:\n"
+               f"آیدی عددی: {user_id}\n"
+               f"نام کاربری: @{user_data.get('username','-')}\n"
+               f"نام کامل: {user_data.get('fullname','-')}\n"
+               f"لینک رفرال: {get_referral_link(user_id)}\n"
+               f"امتیاز: {user_data.get('score',0)}")
         query.edit_message_text(txt)
         return
 
@@ -226,9 +228,8 @@ def button_handler(update: Update, context):
         query.edit_message_text(txt)
         return
 
-# هندل پیام بعد از درخواست (دریافت آیدی یا لینک)
 @bot_active_check
-def message_handler(update: Update, context):
+def message_handler(update, context):
     user_id = update.effective_user.id
     text = update.message.text
     if user_id not in SECTION_WAITING_FOR_ID:
@@ -255,9 +256,10 @@ def message_handler(update: Update, context):
         update.message.reply_text("درخواست شما در حال بررسی است صبور باشید")
         SECTION_WAITING_FOR_ID.pop(user_id)
 
-# --- پنل مدیریت ---
+# پنل مدیریت
+
 @admin_only
-def admin_panel(update: Update, context):
+def admin_panel(update, context):
     keyboard = [
         [InlineKeyboardButton("🔴 خاموش کردن ربات", callback_data="bot_off")],
         [InlineKeyboardButton("🟢 روشن کردن ربات", callback_data="bot_on")],
@@ -269,17 +271,17 @@ def admin_panel(update: Update, context):
     update.message.reply_text("پنل مدیریت:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 @admin_only
-def admin_button_handler(update: Update, context):
+def admin_button_handler(update, context):
     query = update.callback_query
     data = query.data
     query.answer()
     if data == "bot_off":
-        config["bot_on"] = False
-        save_json(CONFIG_FILE, config)
+        settings["bot_active"] = False
+        save_json(SETTINGS_FILE, settings)
         query.edit_message_text("ربات خاموش شد.")
     elif data == "bot_on":
-        config["bot_on"] = True
-        save_json(CONFIG_FILE, config)
+        settings["bot_active"] = True
+        save_json(SETTINGS_FILE, settings)
         query.edit_message_text("ربات روشن شد.")
     elif data == "stats":
         total_users = len(users)
@@ -301,8 +303,9 @@ def admin_button_handler(update: Update, context):
         query.edit_message_text(txt)
 
 # دستورات مدیریتی
+
 @admin_only
-def ban_user(update: Update, context):
+def ban_user(update, context):
     args = context.args
     if len(args) != 1:
         update.message.reply_text("دستور اشتباه است. استفاده: /ban <id>")
@@ -316,7 +319,7 @@ def ban_user(update: Update, context):
         update.message.reply_text("کاربر پیدا نشد.")
 
 @admin_only
-def unban_user(update: Update, context):
+def unban_user(update, context):
     args = context.args
     if len(args) != 1:
         update.message.reply_text("دستور اشتباه است. استفاده: /unban <id>")
@@ -330,7 +333,7 @@ def unban_user(update: Update, context):
         update.message.reply_text("کاربر پیدا نشد.")
 
 @admin_only
-def add_score(update: Update, context):
+def add_score(update, context):
     args = context.args
     if len(args) != 2:
         update.message.reply_text("دستور اشتباه است. استفاده: /addscore <id> <num>")
@@ -349,7 +352,7 @@ def add_score(update: Update, context):
         update.message.reply_text("کاربر پیدا نشد.")
 
 @admin_only
-def rem_score(update: Update, context):
+def rem_score(update, context):
     args = context.args
     if len(args) != 2:
         update.message.reply_text("دستور اشتباه است. استفاده: /remscore <id> <num>")
@@ -369,7 +372,7 @@ def rem_score(update: Update, context):
     else:
         update.message.reply_text("کاربر پیدا نشد.")
 
-# هندلرها ثبت
+# ثبت هندلرها
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("menu", menu))
 dispatcher.add_handler(CallbackQueryHandler(button_handler))
@@ -379,9 +382,9 @@ dispatcher.add_handler(CommandHandler("ban", ban_user))
 dispatcher.add_handler(CommandHandler("unban", unban_user))
 dispatcher.add_handler(CommandHandler("addscore", add_score))
 dispatcher.add_handler(CommandHandler("remscore", rem_score))
-dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), message_handler))
 
-# Flask route برای دریافت webhook از تلگرام
+# مسیر وبهوک
 @app.route('/', methods=['POST'])
 def webhook():
     if request.method == "POST":
@@ -391,7 +394,8 @@ def webhook():
     else:
         abort(403)
 
-if __name__ == '__main__':
-    # حذف و ثبت webhook روی تلگرام
+if __name__ == "__main__":
     bot.delete_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
