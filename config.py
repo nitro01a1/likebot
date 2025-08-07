@@ -11,7 +11,7 @@ WEBHOOK_URL = "https://likebot-q6aj.onrender.com"
 
 # آیدی کانال‌هایی که کاربر باید عضو شود (حتماً با @ شروع شود)
 # ربات باید در این کانال‌ها ادمین باشد
-FORCED_JOIN_CHANNELS = ["@x7gap", "@np pnir"]
+FORCED_JOIN_CHANNELS = ["@x7gap", "@npvpnir"]
 
 # اطلاعات پشتیبانی
 OWNER_ID = "@immmdold"
