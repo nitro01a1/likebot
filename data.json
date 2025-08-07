@@ -1,0 +1,18 @@
+{
+  "bot_status": "on",
+  "users": {},
+  "settings": {
+    "costs": {
+      "like_ff": 1,
+      "account_info": 1,
+      "account_sticker": 1,
+      "free_stars": 3
+    },
+    "secondary_reply": {
+      "like_ff": "خطا❌ لطفا با مدیریت تماس بگیرید",
+      "account_info": "خطا❌ لطفا با مدیریت تماس بگیرید",
+      "account_sticker": "خطا❌ لطفا با مدیریت تماس بگیرید",
+      "free_stars": ""
+    }
+  }
+}
