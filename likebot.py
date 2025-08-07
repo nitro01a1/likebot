@@ -303,10 +303,18 @@ async def user_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await send_user_list_page(update, context, page=page)
 
 @admin_only
-async def bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [["تنظیمات بخش لایک 🔥"], ["تنظیمات بخش استارز ⭐"], ["تنظیمات بخش فری فایر 💻"], ["تنظیمات بخش استیکر 📷"], ["خاموش/روشن کردن ربات"], ["بازگشت به پنل ادمین"]]
+async def bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyboard = [
+        ["تنظیمات بخش لایک 🔥"],
+        ["تنظیمات بخش استارز ⭐"],
+        ["تنظیمات بخش فری فایر 💻"],
+        ["تنظیمات بخش استیکر 📷"],
+        ["خاموش/روشن کردن ربات"],
+        ["بازگشت به پنل ادمین"]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("لطفا بخشی که قصد تنظیم آن را دارید انتخاب کنید:", reply_markup=reply_markup)
+    return AWAITING_ACTION_FOR_USER
 
 async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     service_map = {
@@ -338,7 +346,16 @@ async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا عدد جدید برای نیازمندی امتیاز را وارد کنید:", reply_markup=ReplyKeyboardRemove())
-    return AWAITING_NEW_LIKE_COST  # یا AWAITING_NEW_COST اگه فقط یک هزینه عمومی داری
+    service_key = context.user_data.get('current_service_key')
+    if service_key == "like":
+        return AWAITING_NEW_LIKE_COST
+    elif service_key == "star":
+        return AWAITING_NEW_STAR_COST
+    elif service_key == "ff":
+        return AWAITING_NEW_FF_COST
+    elif service_key == "sticker":
+        return AWAITING_NEW_STICKER_COST
+    return ConversationHandler.END
 
 async def set_autoreply_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا متن جدید برای پاسخ خودکار را ارسال کنید:", reply_markup=ReplyKeyboardRemove())
@@ -424,7 +441,7 @@ def main() -> None:
 
     # ثبت هندلرها
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[CommandHandler('start', start), CommandHandler('admin', admin_panel)],
         states={
             AWAITING_LIKE_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_like_id)],
             AWAITING_STAR_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_star_info)],
@@ -432,18 +449,18 @@ def main() -> None:
             AWAITING_STICKER_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_sticker_info)],
             AWAITING_USER_ID_FOR_MGMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
             AWAITING_ACTION_FOR_USER: [
+                MessageHandler(filters.Regex(r"^تنظیمات بخش (لایک 🔥|استارز ⭐|فری فایر 💻|استیکر 📷)$"), show_service_settings),
                 MessageHandler(filters.Regex(r"^تغییر هزینه \(فعلی: \d+\)$"), set_cost_start),
                 MessageHandler(filters.Regex(r"^تنظیم متن پاسخ خودکار$"), set_autoreply_message_start),
-                MessageHandler(filters.Regex(r"^پاسخ خودکار \(وضعیت: .+\)$"), toggle_autoreply_status),
-                MessageHandler(filters.Regex(r"^بازگشت به تنظیمات$"), bot_settings)
+                MessageHandler(filters.Regex(r"^پاسخ خودکار \(وضعیت: (🟢 فعال|🔴 غیرفعال)\)$"), toggle_autoreply_status),
+                MessageHandler(filters.Regex(r"^بازگشت به تنظیمات$"), bot_settings),
+                MessageHandler(filters.Regex(r"^خاموش/روشن کردن ربات$"), toggle_bot_status)
             ],
             AWAITING_NEW_LIKE_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_STAR_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_FF_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_STICKER_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_AUTOREPLY_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_autoreply_message_end)],
-            AWAITING_POINTS_TO_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
-            AWAITING_POINTS_TO_SUBTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
@@ -452,10 +469,8 @@ def main() -> None:
     application.add_handler(CommandHandler("daily", daily_bonus))
     application.add_handler(CommandHandler("support", support))
     application.add_handler(CommandHandler("info", account_info))
-    application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("stats", bot_stats))
     application.add_handler(CommandHandler("users", list_users))
-    application.add_handler(CommandHandler("settings", bot_settings))
     application.add_handler(CallbackQueryHandler(user_list_callback, pattern=r'^user_list_\d+$'))
     application.add_handler(MessageHandler(filters.Regex(r"^لایک رایگان🔥$"), free_like_request))
     application.add_handler(MessageHandler(filters.Regex(r"^استارز رایگان⭐$"), free_star_request))
@@ -464,10 +479,10 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r"^آمار ربات 📊$"), bot_stats))
     application.add_handler(MessageHandler(filters.Regex(r"^مدیریت کاربر 🛠$"), manage_user_start))
     application.add_handler(MessageHandler(filters.Regex(r"^لیست کاربران 👥$"), list_users))
-    application.add_handler(MessageHandler(filters.Regex(r"^تنظیمات ربات ⚙️$"), bot_settings))
-    application.add_handler(MessageHandler(filters.Regex(r"^خاموش/روشن کردن ربات$"), toggle_bot_status))
+    application.add_handler(MessageHandler(filters.Regex(r"^امتیاز روزانه🎁$"), daily_bonus))
+    application.add_handler(MessageHandler(filters.Regex(r"^اطلاعات اکانت 👤$"), account_info))
+    application.add_handler(MessageHandler(filters.Regex(r"^پشتیبانی📱$"), support))
     application.add_handler(MessageHandler(filters.Regex(r"^بازگشت به منوی کاربر$"), start))
-    application.add_handler(MessageHandler(filters.Regex(r"^تنظیمات بخش .+$"), show_service_settings))
 
     # اجرای ربات
     application.run_polling(allowed_updates=Update.ALL_TYPES)
