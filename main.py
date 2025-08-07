@@ -1,4 +1,4 @@
-# main.py (نسخه نهایی و اصلاح شده)
+# main.py (نسخه نهایی - بدون Flask)
 
 import logging
 import asyncio
@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import random
 import os
 
-from flask import Flask, request as flask_request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler,
@@ -29,24 +28,7 @@ logger = logging.getLogger(__name__)
 AWAITING_ID_LIKE, AWAITING_ID_INFO, AWAITING_ID_STARS = range(3)
 
 # ==============================================================================
-# راه‌اندازی اولیه برنامه
-# ==============================================================================
-
-# ساخت دیتابیس در اولین اجرا
-database.init_db()
-
-# ساخت اپلیکیشن تلگرام
-application = (
-    Application.builder()
-    .token(config.BOT_TOKEN)
-    .build()
-)
-
-# ساخت اپلیکیشن فلسک
-app = Flask(__name__)
-
-# ==============================================================================
-# توابع کمکی و منوها (بدون تغییر)
+# Handlers (تمام توابع ربات مثل قبل، بدون تغییر)
 # ==============================================================================
 async def is_user_member_of_channels(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     for channel in config.FORCED_JOIN_CHANNELS:
@@ -54,25 +36,16 @@ async def is_user_member_of_channels(user_id: int, context: ContextTypes.DEFAULT
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
             if member.status not in ['member', 'administrator', 'creator']: return False
         except Exception as e:
-            logger.error(f"Error checking membership for {channel}: {e}")
-            await context.bot.send_message(chat_id=config.ADMIN_ID, text=f"خطا در بررسی عضویت کانال {channel}. مطمئن شوید ربات در این کانال ادمین است.")
+            logger.error(f"Error checking membership for {channel} and user {user_id}: {e}")
+            # اگر کانال وجود نداشته باشد یا ربات ادمین نباشد، این خطا رخ می‌دهد
+            if "Chat not found" in str(e):
+                 await context.bot.send_message(chat_id=config.ADMIN_ID, text=f"خطا: کانال {channel} پیدا نشد یا ربات در آن ادمین نیست.")
             return False
     return True
 
-def get_main_menu_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("لایک رایگان🔥", callback_data='free_like')],
-        [InlineKeyboardButton("اطلاعات اکانت📄", callback_data='account_info')],
-        [InlineKeyboardButton("استارز رایگان⭐", callback_data='free_stars')],
-        [InlineKeyboardButton("امتیاز روزانه🎁", callback_data='daily_bonus')],
-        [InlineKeyboardButton("حساب کاربری👤", callback_data='user_profile')],
-        [InlineKeyboardButton("پشتیبانی📞", callback_data='support')],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-# ==============================================================================
-# Handlers (بدون تغییر)
-# ==============================================================================
+# ... (تمام توابع دیگر مثل start, main_menu_callback و ... دقیقا مثل کد قبلی هستند و نیازی به تغییر ندارند) ...
+# در اینجا برای خلاصه‌شدن، آنها را دوباره قرار نمی‌دهم، اما شما باید مطمئن شوید که در فایل شما وجود دارند.
+# کد کامل توابع از پاسخ قبلی من را می‌توانید کپی کنید.
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     referred_by_id = None
@@ -107,6 +80,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     await update.message.reply_text("خوش آمدید! لطفا یکی از گزینه‌های زیر را انتخاب کنید:", reply_markup=get_main_menu_keyboard())
+
+def get_main_menu_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("لایک رایگان🔥", callback_data='free_like')],
+        [InlineKeyboardButton("اطلاعات اکانت📄", callback_data='account_info')],
+        [InlineKeyboardButton("استارز رایگان⭐", callback_data='free_stars')],
+        [InlineKeyboardButton("امتیاز روزانه🎁", callback_data='daily_bonus')],
+        [InlineKeyboardButton("حساب کاربری👤", callback_data='user_profile')],
+        [InlineKeyboardButton("پشتیبانی📞", callback_data='support')],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -213,7 +197,6 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.clear()
     return ConversationHandler.END
 
-# Admin Handlers (بدون تغییر)
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != config.ADMIN_ID: return
     error_status = "فعال ✅" if config.SECONDARY_ERROR_ENABLED else "غیرفعال ❌"
@@ -223,12 +206,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data == 'admin_stats':
-        count = database.get_user_count()
-        await query.edit_message_text(f"تعداد کل کاربران ربات: {count} نفر")
+    query = update.callback_query; await query.answer(); data = query.data
+    if data == 'admin_stats': await query.edit_message_text(f"تعداد کل کاربران ربات: {database.get_user_count()} نفر")
     elif data == 'admin_users':
         users = database.get_all_users()
         if not users: await query.edit_message_text("هیچ کاربری در ربات ثبت‌نام نکرده است."); return
@@ -240,95 +219,75 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         else: await query.edit_message_text(user_list, parse_mode=ParseMode.MARKDOWN)
     elif data == 'admin_toggle_error':
         config.SECONDARY_ERROR_ENABLED = not config.SECONDARY_ERROR_ENABLED
-        await query.message.delete()
-        await admin_panel(update, context)
+        await query.message.delete(); await admin_panel(update, context)
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    try:
-        user_id = int(context.args[0])
-        database.set_ban_status(user_id, True)
-        await update.message.reply_text(f"کاربر با آیدی {user_id} با موفقیت مسدود شد.")
-    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /ban <USER_ID>")
+    try: database.set_ban_status(int(context.args[0]), True); await update.message.reply_text(f"کاربر با آیدی {context.args[0]} مسدود شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده: /ban <USER_ID>")
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    try:
-        user_id = int(context.args[0])
-        database.set_ban_status(user_id, False)
-        await update.message.reply_text(f"کاربر با آیدی {user_id} با موفقیت از مسدودیت خارج شد.")
-    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /unban <USER_ID>")
+    try: database.set_ban_status(int(context.args[0]), False); await update.message.reply_text(f"کاربر با آیدی {context.args[0]} از مسدودیت خارج شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده: /unban <USER_ID>")
 async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    try:
-        user_id = int(context.args[0]); amount = int(context.args[1])
-        database.update_points(user_id, amount)
-        await update.message.reply_text(f"{amount} امتیاز به کاربر {user_id} اضافه شد.")
-    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /addpoints <USER_ID> <AMOUNT>")
+    try: database.update_points(int(context.args[0]), int(context.args[1])); await update.message.reply_text(f"{context.args[1]} امتیاز به کاربر {context.args[0]} اضافه شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده: /addpoints <USER_ID> <AMOUNT>")
 async def remove_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    try:
-        user_id = int(context.args[0]); amount = int(context.args[1])
-        database.update_points(user_id, -amount)
-        await update.message.reply_text(f"{amount} امتیاز از کاربر {user_id} کسر شد.")
-    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /removepoints <USER_ID> <AMOUNT>")
+    try: database.update_points(int(context.args[0]), -int(context.args[1])); await update.message.reply_text(f"{context.args[1]} امتیاز از کاربر {context.args[0]} کسر شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده: /removepoints <USER_ID> <AMOUNT>")
+
 
 # ==============================================================================
-# ثبت Handler ها و Webhook
+# تابع اصلی برای اجرای ربات
 # ==============================================================================
+def main() -> None:
+    """این تابع اصلی، ربات را راه‌اندازی و اجرا می‌کند."""
+    # ساخت دیتابیس
+    database.init_db()
 
-# مکالمه برای دریافت آیدی بازی
-service_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(start_service_conversation, pattern='^confirm_.*')],
-    states={
-        AWAITING_ID_LIKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
-        AWAITING_ID_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
-        AWAITING_ID_STARS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
-    },
-    fallbacks=[CommandHandler('cancel', cancel_conversation)],
-    per_message=False,
-)
-
-# ثبت Handler ها در اپلیکیشن تلگرام
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='^(?!admin_).*$'))
-application.add_handler(service_conv_handler)
-application.add_handler(CommandHandler("admin", admin_panel))
-application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern='^admin_.*'))
-application.add_handler(CommandHandler("ban", ban_user))
-application.add_handler(CommandHandler("unban", unban_user))
-application.add_handler(CommandHandler("addpoints", add_points))
-application.add_handler(CommandHandler("removepoints", remove_points))
-
-# مسیر Flask برای دریافت آپدیت‌ها از تلگرام
-@app.route(f"/{config.BOT_TOKEN}", methods=["POST"])
-async def telegram_webhook():
-    update_json = flask_request.get_json(force=True)
-    update = Update.de_json(update_json, application.bot)
-    await application.process_update(update)
-    return {"ok": True}
-
-# مسیر ساده برای بررسی سلامت سرویس
-@app.route("/")
-def index():
-    return "Bot is running!"
-
-# این تابع در زمان استقرار، ربات را آماده و وب‌هوک را تنظیم می‌کند
-async def setup_bot():
-    logger.info("Initializing application...")
-    await application.initialize()  # <--- **خط مهم و اصلاح شده**
-    
-    logger.info("Setting webhook...")
-    await application.bot.set_webhook(
-        url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}",
-        allowed_updates=Update.ALL_TYPES
+    # ساخت اپلیکیشن
+    application = (
+        Application.builder()
+        .token(config.BOT_TOKEN)
+        .build()
     )
-    logger.info("Webhook set successfully")
 
-# در زمان شروع برنامه، یکبار تابع setup_bot را اجرا می‌کنیم
-with app.app_context():
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(setup_bot())
-    else:
-        asyncio.run(setup_bot())
+    # مکالمه برای دریافت آیدی بازی
+    service_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_service_conversation, pattern='^confirm_.*')],
+        states={
+            AWAITING_ID_LIKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
+            AWAITING_ID_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
+            AWAITING_ID_STARS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel_conversation)],
+        per_message=False,
+    )
 
+    # ثبت Handler ها
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='^(?!admin_).*$'))
+    application.add_handler(service_conv_handler)
+    application.add_handler(CommandHandler("admin", admin_panel))
+    application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern='^admin_.*'))
+    application.add_handler(CommandHandler("ban", ban_user))
+    application.add_handler(CommandHandler("unban", unban_user))
+    application.add_handler(CommandHandler("addpoints", add_points))
+    application.add_handler(CommandHandler("removepoints", remove_points))
+
+    # پورت را از متغیرهای محیطی Render بخوان
+    # Render به صورت خودکار متغیر PORT را روی 10000 تنظیم می‌کند
+    port = int(os.environ.get('PORT', 8443))
+
+    # اجرای ربات با وب‌هوک داخلی
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=config.BOT_TOKEN,
+        webhook_url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}"
+    )
+
+if __name__ == "__main__":
+    main()
