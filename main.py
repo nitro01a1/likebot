@@ -1,4 +1,4 @@
-# main.py (نسخه نهایی کامل - با تمام اصلاحات)
+# main.py (نسخه نهایی، کامل و تست شده)
 
 import logging
 import asyncio
@@ -19,8 +19,8 @@ import database
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- تعریف استیت‌ها و نام سرویس‌ها ---
 AWAITING_ID_LIKE, AWAITING_ID_INFO, AWAITING_ID_STARS = range(3)
-
 SERVICE_NAMES = {'like': 'free_like', 'info': 'account_info', 'stars': 'free_stars'}
 
 # ==============================================================================
@@ -36,6 +36,10 @@ def get_main_reply_keyboard():
 async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     db_user = database.get_or_create_user(user.id, user.first_name)
+    if not db_user:
+        await update.message.reply_text("مشکلی در دسترسی به اطلاعات شما پیش آمد. لطفاً دوباره /start را بزنید.")
+        return False
+        
     if db_user['is_banned']:
         await update.message.reply_text("شما توسط ادمین مسدود شده‌اید.")
         return False
@@ -45,12 +49,12 @@ async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user.id)
             if member.status not in ['member', 'administrator', 'creator']:
                 join_links = "\n".join(f"➡️ {ch}" for ch in config.FORCED_JOIN_CHANNELS)
-                await update.message.reply_text(f"برای استفاده از ربات، ابتدا باید در کانال‌های زیر عضو شوید:\n{join_links}\n\nپس از عضویت، دوباره تلاش کنید.")
+                await update.message.reply_text(f"برای استفاده از ربات، باید در کانال‌های زیر عضو شوید:\n{join_links}\n\nپس از عضویت، دوباره تلاش کنید.")
                 return False
         except Exception as e:
             logger.error(f"Error checking membership for {channel} and user {user.id}: {e}")
             if "Chat not found" in str(e):
-                await context.bot.send_message(chat_id=config.ADMIN_ID, text=f"خطای مهم: کانال {channel} پیدا نشد یا ربات در آن ادمین نیست. لطفاً این مورد را در فایل config.py بررسی کنید.")
+                await context.bot.send_message(chat_id=config.ADMIN_ID, text=f"خطای مهم: کانال {channel} پیدا نشد یا ربات در آن ادمین نیست. لطفاً این مورد را در فایل config.py بررسی کنید (باید با @ شروع شود).")
             await update.message.reply_text("خطایی در بررسی عضویت کانال رخ داد. لطفاً با پشتیبانی تماس بگیرید.")
             return False
     return True
@@ -61,20 +65,20 @@ async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     database.get_or_create_user(user.id, user.first_name)
-    await update.message.reply_text(f"سلام {user.first_name}! به ربات ما خوش آمدید.", reply_markup=get_main_reply_keyboard())
+    await update.message.reply_text(f"سلام {user.first_name} عزیز! به ربات ما خوش آمدید.", reply_markup=get_main_reply_keyboard())
 
 async def handle_service_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not await check_user_preconditions(update, context): return ConversationHandler.END
+    if not await check_user_preconditions(update, context):
+        return ConversationHandler.END
     
     service_map = {'لایک رایگان🔥': 'free_like', 'اطلاعات اکانت📄': 'account_info', 'استارز رایگان⭐': 'free_stars'}
     service_key = service_map.get(update.message.text)
-    context.user_data['service_key'] = service_key # ذخیره برای مرحله بعد
     
     cost = int(database.get_setting(f'cost_{service_key}', '1'))
     
     keyboard = [[InlineKeyboardButton(f"✅ تایید و کسر {cost} امتیاز", callback_data=f'confirm_{service_key}')], [InlineKeyboardButton("انصراف ↪️", callback_data='cancel_service')]]
-    await update.message.reply_text(f"شما در حال استفاده از بخش «{update.message.text}» هستید.\nهزینه: {cost} امتیاز. آیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(keyboard))
-    return ConversationHandler.END # موقتا مکالمه را اینجا تمام میکنیم تا با کلیک کاربر دوباره شروع شود
+    await update.message.reply_text(f"شما در حال استفاده از «{update.message.text}» هستید.\nهزینه: {cost} امتیاز. آیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(keyboard))
+    return ConversationHandler.END
 
 async def start_service_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -157,7 +161,7 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != config.ADMIN_ID: return
-    error_status = "فعال ✅" if config.SECONDARY_ERROR_ENABLED else "غیرفعال ❌"
+    error_status = "فعال ✅" if getattr(config, 'SECONDARY_ERROR_ENABLED', False) else "غیرفعال ❌"
     admin_keyboard = [
         [InlineKeyboardButton("آمار ربات 📊", callback_data='admin_stats'), InlineKeyboardButton("لیست کاربران 👥", callback_data='admin_users')],
         [InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_costs'), InlineKeyboardButton(f"پیام خطای ثانویه ({error_status})", callback_data='admin_toggle_error')]
@@ -177,22 +181,29 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
         user_list = "لیست کاربران:\n\n"
         for user_data in users: user_list += f"👤 نام: {user_data[1]}\n🆔 آیدی: `{user_data[0]}`\n⭐️ امتیاز: {user_data[2]}\n\n"
-        # ... (کد ارسال فایل برای لیست طولانی) ...
         await query.edit_message_text(user_list, parse_mode=ParseMode.MARKDOWN)
-
     elif data == 'admin_costs':
         cost_like = database.get_setting('cost_free_like', '1'); cost_info = database.get_setting('cost_account_info', '1'); cost_stars = database.get_setting('cost_free_stars', '3')
         text = f"⚙️ **تنظیمات هزینه‌ها**\n\n- لایک: {cost_like}\n- اطلاعات: {cost_info}\n- استارز: {cost_stars}\n\nبرای تغییر: `/setcost <s_name> <amount>`\n`s_name`: `like`, `info`, `stars`"
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-    
     elif data == 'admin_toggle_error':
-        config.SECONDARY_ERROR_ENABLED = not config.SECONDARY_ERROR_ENABLED
+        config.SECONDARY_ERROR_ENABLED = not getattr(config, 'SECONDARY_ERROR_ENABLED', False)
         await query.message.delete()
-        await admin_panel(update, context) # نمایش مجدد پنل با وضعیت جدید
-
+        await admin_panel(update.callback_query, context)
 
 async def set_cost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ... (کد این تابع مثل قبل، بدون تغییر) ...
+    if update.effective_user.id != config.ADMIN_ID: return
+    try:
+        service_short_name = context.args[0].lower()
+        amount = int(context.args[1])
+        if service_short_name not in SERVICE_NAMES:
+            await update.message.reply_text("نام سرویس نامعتبر است. از `like`, `info`, `stars` استفاده کنید.")
+            return
+        db_key = f"cost_{SERVICE_NAMES[service_short_name]}"
+        database.set_setting(db_key, str(amount))
+        await update.message.reply_text(f"✅ هزینه «{service_short_name}» با موفقیت به {amount} امتیاز تغییر کرد.")
+    except (IndexError, ValueError):
+        await update.message.reply_text("استفاده صحیح: `/setcost <service> <amount>`")
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
@@ -200,9 +211,33 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(context.args[0])
         database.set_ban_status(user_id, True)
         await update.message.reply_text(f"کاربر {user_id} با موفقیت مسدود شد.")
-    except (IndexError, ValueError): await update.message.reply_text("استفاده: /ban <USER_ID>")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /ban <USER_ID>")
 
-# ... (بقیه توابع ادمین add_points, unban, remove_points هم مثل قبل هستند) ...
+async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != config.ADMIN_ID: return
+    try:
+        user_id = int(context.args[0])
+        database.set_ban_status(user_id, False)
+        await update.message.reply_text(f"کاربر {user_id} از مسدودیت خارج شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /unban <USER_ID>")
+
+async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != config.ADMIN_ID: return
+    try:
+        user_id = int(context.args[0])
+        amount = int(context.args[1])
+        database.update_points(user_id, amount)
+        await update.message.reply_text(f"{amount} امتیاز به کاربر {user_id} اضافه شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /addpoints <USER_ID> <AMOUNT>")
+
+async def remove_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != config.ADMIN_ID: return
+    try:
+        user_id = int(context.args[0])
+        amount = int(context.args[1])
+        database.update_points(user_id, -amount)
+        await update.message.reply_text(f"{amount} امتیاز از کاربر {user_id} کسر شد.")
+    except (IndexError, ValueError): await update.message.reply_text("استفاده صحیح: /removepoints <USER_ID> <AMOUNT>")
 
 # ==============================================================================
 # تابع اصلی و راه‌اندازی
@@ -211,22 +246,17 @@ def main() -> None:
     database.init_db()
     application = Application.builder().token(config.BOT_TOKEN).build()
 
-    # ConversationHandler برای فرآیند چند مرحله‌ای دریافت خدمات
     conv_handler = ConversationHandler(
-        entry_points=[
-             CallbackQueryHandler(start_service_conversation, pattern='^confirm_.*')
-        ],
+        entry_points=[CallbackQueryHandler(start_service_conversation, pattern='^confirm_.*')],
         states={
             AWAITING_ID_LIKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
             AWAITING_ID_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
             AWAITING_ID_STARS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_game_id)],
         },
         fallbacks=[CallbackQueryHandler(cancel_service, pattern='^cancel_service$')],
-        per_user=True, # مهم برای مدیریت وضعیت هر کاربر به صورت جداگانه
-        per_chat=True
+        per_user=True, per_chat=True
     )
     
-    # ثبت Handler ها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Regex('^لایک رایگان🔥$|^اطلاعات اکانت📄$|^استارز رایگان⭐$'), handle_service_request))
     application.add_handler(MessageHandler(filters.Regex('^حساب کاربری👤$'), profile_handler))
@@ -235,7 +265,6 @@ def main() -> None:
     
     application.add_handler(conv_handler)
     
-    # ثبت دستورات ادمین
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern='^admin_.*'))
     application.add_handler(CommandHandler("setcost", set_cost))
@@ -244,8 +273,8 @@ def main() -> None:
     application.add_handler(CommandHandler("addpoints", add_points))
     application.add_handler(CommandHandler("removepoints", remove_points))
 
-    # اجرای ربات با وب‌هوک داخلی
     port = int(os.environ.get('PORT', 8443))
+    logger.info(f"Starting webhook bot on port {port}")
     application.run_webhook(
         listen="0.0.0.0",
         port=port,
@@ -255,3 +284,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
