@@ -1,4 +1,4 @@
-# database.py
+# database.py (نسخه جدید)
 
 import sqlite3
 from datetime import datetime
@@ -6,9 +6,10 @@ from datetime import datetime
 DB_NAME = 'bot_database.db'
 
 def init_db():
-    """ پایگاه داده و جدول کاربران را ایجاد می‌کند """
+    """ پایگاه داده و جداول مورد نیاز را ایجاد می‌کند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    # جدول کاربران
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -19,11 +20,46 @@ def init_db():
             referred_by INTEGER
         )
     ''')
+    # جدول تنظیمات برای ذخیره هزینه‌ها
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    
+    # مقادیر پیش‌فرض هزینه‌ها را اگر وجود نداشتند، اضافه کن
+    default_costs = {
+        'cost_free_like': '1',
+        'cost_account_info': '1',
+        'cost_free_stars': '3'
+    }
+    for key, value in default_costs.items():
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    
     conn.commit()
     conn.close()
 
+def get_setting(key: str, default: str = None) -> str:
+    """ یک مقدار را از جدول تنظیمات می‌خواند """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else default
+
+def set_setting(key: str, value: str):
+    """ یک مقدار را در جدول تنظیمات ذخیره یا آپدیت می‌کند """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+# --- توابع مربوط به کاربران (بدون تغییر) ---
 def get_or_create_user(user_id, first_name, referred_by=None):
-    """ یک کاربر را بر اساس آیدی دریافت یا ایجاد می‌کند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -37,16 +73,11 @@ def get_or_create_user(user_id, first_name, referred_by=None):
         cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user = cursor.fetchone()
     conn.close()
-    # تبدیل نتیجه به دیکشنری برای دسترسی راحت‌تر
     if user:
-        return {
-            "user_id": user[0], "first_name": user[1], "points": user[2],
-            "last_daily_claim": user[3], "is_banned": bool(user[4]), "referred_by": user[5]
-        }
+        return {"user_id": user[0], "first_name": user[1], "points": user[2], "last_daily_claim": user[3], "is_banned": bool(user[4]), "referred_by": user[5]}
     return None
 
 def update_points(user_id, amount):
-    """ امتیاز کاربر را به مقدار مشخص شده تغییر می‌دهد (می‌تواند منفی باشد) """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
@@ -54,7 +85,6 @@ def update_points(user_id, amount):
     conn.close()
 
 def set_daily_claim(user_id):
-    """ زمان آخرین دریافت امتیاز روزانه را ثبت می‌کند """
     now = datetime.now().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -63,7 +93,6 @@ def set_daily_claim(user_id):
     conn.close()
 
 def get_all_users():
-    """ لیستی از تمام کاربران را برمی‌گرداند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, first_name, points FROM users")
@@ -72,7 +101,6 @@ def get_all_users():
     return users
 
 def set_ban_status(user_id, status: bool):
-    """ وضعیت بن بودن کاربر را تغییر می‌دهد """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (int(status), user_id))
@@ -80,7 +108,6 @@ def set_ban_status(user_id, status: bool):
     conn.close()
 
 def get_user_count():
-    """ تعداد کل کاربران را برمی‌گرداند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
