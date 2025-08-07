@@ -15,7 +15,6 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from telegram.constants import ChatMemberStatus
 
 # تنظیمات اولیه
 app = Flask(__name__)
@@ -31,7 +30,8 @@ DEFAULT_AUTOREPLY_MSG = "خطا در اتصال به سرور❌ لطفا با �
 AWAITING_LIKE_ID, AWAITING_STAR_INFO, AWAITING_FF_INFO, AWAITING_STICKER_INFO = range(4)
 
 # مراحل ادمین
-AWAITING_USER_ID_FOR_MGMT, AWAITING_ACTION_FOR_USER, AWAITING_POINTS_TO_ADD, AWAITING_POINTS_TO_SUBTRACT, AWAITING_NEW_LIKE_COST, AWAITING_NEW_STAR_COST, AWAITING_NEW_FF_COST, AWAITING_NEW_STICKER_COST, AWAITING_AUTOREPLY_MSG = range(4, 13)
+AWAITING_USER_ID_FOR_MGMT, AWAITING_ACTION_FOR_USER, AWAITING_POINTS_TO_ADD, AWAITING_POINTS_TO_SUBTRACT, \
+AWAITING_NEW_LIKE_COST, AWAITING_NEW_STAR_COST, AWAITING_NEW_FF_COST, AWAITING_NEW_STICKER_COST, AWAITING_AUTOREPLY_MSG = range(4, 13)
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ def user_check(func):
         for channel_id in REQUIRED_CHANNELS:
             try:
                 member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user.id)
-                if member.status not in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+                if member.status not in ["member", "administrator", "owner"]:
                     not_joined_channels.append(channel_id)
             except Exception as e:
                 logger.error(f"Error checking channel {channel_id}: {e}")
@@ -99,8 +99,8 @@ def user_check(func):
             save_data(user_data, DATA_FILE)
             try:
                 await context.bot.send_message(chat_id=referrer_id, text=f"✅ کاربر {user.first_name} با لینک شما وارد ربات شد و ۱ امتیاز به شما افزوده شد.")
-            except error.Forbidden:
-                logger.warning(f"Could not send referral notification to {referrer_id}.")
+            except Exception as e:
+                logger.warning(f"Could not send referral notification to {referrer_id}: {e}")
 
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -315,7 +315,10 @@ async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TY
         "تنظیمات بخش فری فایر 💻": ("ff", "فری فایر💻"),
         "تنظیمات بخش استیکر 📷": ("sticker", "استیکر📷")
     }
-    service_key, service_name = service_map[update.message.text]
+    service_key, service_name = service_map.get(update.message.text, ("", ""))
+    if not service_key:
+        await update.message.reply_text("بخش انتخاب‌شده نامعتبر است.")
+        return ConversationHandler.END
     context.user_data['current_service_key'] = service_key
 
     settings = load_data(SETTINGS_FILE, {})
@@ -335,7 +338,7 @@ async def show_service_settings(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def set_cost_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا عدد جدید برای نیازمندی امتیاز را وارد کنید:", reply_markup=ReplyKeyboardRemove())
-    return AWAITING_NEW_COST
+    return AWAITING_NEW_LIKE_COST  # یا AWAITING_NEW_COST اگه فقط یک هزینه عمومی داری
 
 async def set_autoreply_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("لطفا متن جدید برای پاسخ خودکار را ارسال کنید:", reply_markup=ReplyKeyboardRemove())
@@ -399,7 +402,8 @@ async def toggle_bot_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 @admin_only
 async def manage_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    pass
+    await update.message.reply_text("لطفا آیدی کاربر را برای مدیریت ارسال کنید:", reply_markup=ReplyKeyboardRemove())
+    return AWAITING_USER_ID_FOR_MGMT
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("عملیات لغو شد.")
@@ -426,14 +430,20 @@ def main() -> None:
             AWAITING_STAR_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_star_info)],
             AWAITING_FF_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_ff_info)],
             AWAITING_STICKER_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_sticker_info)],
+            AWAITING_USER_ID_FOR_MGMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
             AWAITING_ACTION_FOR_USER: [
-                MessageHandler(filters.Regex(f"^{r'تغییر هزینه \(فعلی: \d+\)'}$"), set_cost_start),
-                MessageHandler(filters.Regex("^تنظیم متن پاسخ خودکار$"), set_autoreply_message_start),
-                MessageHandler(filters.Regex("^پاسخ خودکار \(وضعیت: .+\)$"), toggle_autoreply_status),
-                MessageHandler(filters.Regex("^بازگشت به تنظیمات$"), bot_settings)
+                MessageHandler(filters.Regex(r"^تغییر هزینه \(فعلی: \d+\)$"), set_cost_start),
+                MessageHandler(filters.Regex(r"^تنظیم متن پاسخ خودکار$"), set_autoreply_message_start),
+                MessageHandler(filters.Regex(r"^پاسخ خودکار \(وضعیت: .+\)$"), toggle_autoreply_status),
+                MessageHandler(filters.Regex(r"^بازگشت به تنظیمات$"), bot_settings)
             ],
-            AWAITING_NEW_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
+            AWAITING_NEW_LIKE_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
+            AWAITING_NEW_STAR_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
+            AWAITING_NEW_FF_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
+            AWAITING_NEW_STICKER_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_AUTOREPLY_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_autoreply_message_end)],
+            AWAITING_POINTS_TO_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
+            AWAITING_POINTS_TO_SUBTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
@@ -447,20 +457,20 @@ def main() -> None:
     application.add_handler(CommandHandler("users", list_users))
     application.add_handler(CommandHandler("settings", bot_settings))
     application.add_handler(CallbackQueryHandler(user_list_callback, pattern=r'^user_list_\d+$'))
-    application.add_handler(MessageHandler(filters.Regex("^لایک رایگان🔥$"), free_like_request))
-    application.add_handler(MessageHandler(filters.Regex("^استارز رایگان⭐$"), free_star_request))
-    application.add_handler(MessageHandler(filters.Regex("^اطلاعات اکانت فری فایر💻$"), free_fire_request))
-    application.add_handler(MessageHandler(filters.Regex("^استیکر اکانت📷$"), account_sticker_request))
-    application.add_handler(MessageHandler(filters.Regex("^آمار ربات 📊$"), bot_stats))
-    application.add_handler(MessageHandler(filters.Regex("^مدیریت کاربر 🛠$"), manage_user_start))
-    application.add_handler(MessageHandler(filters.Regex("^لیست کاربران 👥$"), list_users))
-    application.add_handler(MessageHandler(filters.Regex("^تنظیمات ربات ⚙️$"), bot_settings))
-    application.add_handler(MessageHandler(filters.Regex("^خاموش/روشن کردن ربات$"), toggle_bot_status))
-    application.add_handler(MessageHandler(filters.Regex("^بازگشت به منوی کاربر$"), start))
-    application.add_handler(MessageHandler(filters.Regex("^تنظیمات بخش .+$"), show_service_settings))
+    application.add_handler(MessageHandler(filters.Regex(r"^لایک رایگان🔥$"), free_like_request))
+    application.add_handler(MessageHandler(filters.Regex(r"^استارز رایگان⭐$"), free_star_request))
+    application.add_handler(MessageHandler(filters.Regex(r"^اطلاعات اکانت فری فایر💻$"), free_fire_request))
+    application.add_handler(MessageHandler(filters.Regex(r"^استیکر اکانت📷$"), account_sticker_request))
+    application.add_handler(MessageHandler(filters.Regex(r"^آمار ربات 📊$"), bot_stats))
+    application.add_handler(MessageHandler(filters.Regex(r"^مدیریت کاربر 🛠$"), manage_user_start))
+    application.add_handler(MessageHandler(filters.Regex(r"^لیست کاربران 👥$"), list_users))
+    application.add_handler(MessageHandler(filters.Regex(r"^تنظیمات ربات ⚙️$"), bot_settings))
+    application.add_handler(MessageHandler(filters.Regex(r"^خاموش/روشن کردن ربات$"), toggle_bot_status))
+    application.add_handler(MessageHandler(filters.Regex(r"^بازگشت به منوی کاربر$"), start))
+    application.add_handler(MessageHandler(filters.Regex(r"^تنظیمات بخش .+$"), show_service_settings))
 
     # اجرای ربات
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # پورت پیش‌فرض Render
