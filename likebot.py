@@ -17,10 +17,10 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 # --- تنظیمات اولیه (خوانده شده از متغیرهای محیطی Render) ---
-BOT_TOKEN = os.getenv("7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc")
-ADMIN_IDS_STR = os.getenv("1956250138", "8066854428").split(',')
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "").split(',')
 ADMIN_IDS = [int(admin_id) for admin_id in ADMIN_IDS_STR if admin_id]
-FORCED_JOIN_CHANNELS = os.getenv("@x7gap", "@npvpnir").split(',')
+FORCED_JOIN_CHANNELS = os.getenv("FORCED_JOIN_CHANNELS", "").split(',')
 
 # --- مسیر فایل دیتا روی حافظه دائمی Render Disk --- # <<< تغییر یافته
 DATA_PATH = os.path.join(os.getenv("RENDER_DISK_PATH", "."), "data.json")
