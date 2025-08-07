@@ -1,4 +1,4 @@
-# database.py (نسخه جدید با لاگ‌گیری)
+# database.py
 
 import sqlite3
 from datetime import datetime
@@ -6,11 +6,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 DB_NAME = 'bot_database.db'
-
-# ... (تمام توابع دیگر مثل init_db, get_or_create_user و ... دقیقا مثل کد قبلی هستند) ...
-# در اینجا فقط توابعی که تغییر کرده‌اند را برای خلاصه‌شدن نشان می‌دهم.
-# شما باید کد کامل پاسخ قبلی من را برای این فایل داشته باشید و فقط این توابع را در آن اصلاح کنید
-# یا برای اطمینان، کد کامل زیر را استفاده کنید.
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
