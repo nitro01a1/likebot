@@ -1,48 +1,30 @@
-# database.py (نسخه جدید)
+# database.py (نسخه جدید با لاگ‌گیری)
 
 import sqlite3
 from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 DB_NAME = 'bot_database.db'
 
+# ... (تمام توابع دیگر مثل init_db, get_or_create_user و ... دقیقا مثل کد قبلی هستند) ...
+# در اینجا فقط توابعی که تغییر کرده‌اند را برای خلاصه‌شدن نشان می‌دهم.
+# شما باید کد کامل پاسخ قبلی من را برای این فایل داشته باشید و فقط این توابع را در آن اصلاح کنید
+# یا برای اطمینان، کد کامل زیر را استفاده کنید.
+
 def init_db():
-    """ پایگاه داده و جداول مورد نیاز را ایجاد می‌کند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # جدول کاربران
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            first_name TEXT NOT NULL,
-            points INTEGER DEFAULT 0,
-            last_daily_claim TEXT,
-            is_banned INTEGER DEFAULT 0,
-            referred_by INTEGER
-        )
-    ''')
-    # جدول تنظیمات برای ذخیره هزینه‌ها
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    ''')
+    cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, first_name TEXT NOT NULL, points INTEGER DEFAULT 0, last_daily_claim TEXT, is_banned INTEGER DEFAULT 0, referred_by INTEGER)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     conn.commit()
-    
-    # مقادیر پیش‌فرض هزینه‌ها را اگر وجود نداشتند، اضافه کن
-    default_costs = {
-        'cost_free_like': '1',
-        'cost_account_info': '1',
-        'cost_free_stars': '3'
-    }
+    default_costs = {'cost_free_like': '1', 'cost_account_info': '1', 'cost_free_stars': '3'}
     for key, value in default_costs.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
-    
     conn.commit()
     conn.close()
 
 def get_setting(key: str, default: str = None) -> str:
-    """ یک مقدار را از جدول تنظیمات می‌خواند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
@@ -51,25 +33,26 @@ def get_setting(key: str, default: str = None) -> str:
     return result[0] if result else default
 
 def set_setting(key: str, value: str):
-    """ یک مقدار را در جدول تنظیمات ذخیره یا آپدیت می‌کند """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        logger.info(f"Setting '{key}' updated to '{value}' successfully.")
+    except Exception as e:
+        logger.error(f"Failed to set setting {key}: {e}")
+    finally:
+        conn.close()
 
-# --- توابع مربوط به کاربران (بدون تغییر) ---
 def get_or_create_user(user_id, first_name, referred_by=None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
-        cursor.execute(
-            "INSERT INTO users (user_id, first_name, referred_by) VALUES (?, ?, ?)",
-            (user_id, first_name, referred_by)
-        )
+        cursor.execute("INSERT INTO users (user_id, first_name, referred_by) VALUES (?, ?, ?)", (user_id, first_name, referred_by))
         conn.commit()
+        logger.info(f"New user created: {user_id} - Referred by: {referred_by}")
         cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user = cursor.fetchone()
     conn.close()
@@ -80,14 +63,19 @@ def get_or_create_user(user_id, first_name, referred_by=None):
 def update_points(user_id, amount):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
+        conn.commit()
+        logger.info(f"Points for user {user_id} changed by {amount}.")
+    except Exception as e:
+        logger.error(f"Failed to update points for {user_id}: {e}")
+    finally:
+        conn.close()
 
 def set_daily_claim(user_id):
-    now = datetime.now().isoformat()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    now = datetime.now().isoformat()
     cursor.execute("UPDATE users SET last_daily_claim = ? WHERE user_id = ?", (now, user_id))
     conn.commit()
     conn.close()
@@ -103,9 +91,14 @@ def get_all_users():
 def set_ban_status(user_id, status: bool):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (int(status), user_id))
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (int(status), user_id))
+        conn.commit()
+        logger.info(f"Ban status for user {user_id} set to {status}.")
+    except Exception as e:
+        logger.error(f"Failed to set ban status for {user_id}: {e}")
+    finally:
+        conn.close()
 
 def get_user_count():
     conn = sqlite3.connect(DB_NAME)
