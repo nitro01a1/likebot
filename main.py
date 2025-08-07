@@ -7,7 +7,6 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler,
-
     ContextTypes, ConversationHandler, filters
 )
 from telegram.constants import ParseMode
@@ -16,7 +15,8 @@ import config
 import database
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(name)
+# <<< MODIFIED: خطای اصلی در این قسمت بود که اکنون اصلاح شده است
+logger = logging.getLogger(__name__)
 
 # --- تعریف استیت‌ها و دیکشنری‌ها ---
 AWAITING_ID, AWAITING_STARS_DETAILS = 0, 1
@@ -35,17 +35,14 @@ SERVICE_NAME_MAP_FA = {v: k for k, v in SERVICE_MAP.items()}
 def get_main_reply_keyboard():
     return ReplyKeyboardMarkup([['لایک رایگان🔥', 'اطلاعات اکانت📄'], ['استارز رایگان⭐', 'امتیاز روزانه🎁'], ['حساب کاربری👤', 'پشتیبانی📞']], resize_keyboard=True)
 
-# <<< MODIFIED: تابع پیش‌شرط‌ها برای بررسی وضعیت روشن/خاموش ربات آپدیت شد
 async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     
-    # مرحله ۱: چک کردن وضعیت کلی ربات (روشن یا خاموش)
     bot_is_on = database.get_setting('bot_status', 'true') == 'true'
     if not bot_is_on and user.id != config.ADMIN_ID:
         await update.message.reply_text("🔴 در حال حاضر ربات در حال تعمیر و بروزرسانی است. لطفا بعدا تلاش کنید.")
         return False
 
-    # مرحله ۲: چک کردن وجود و بن نبودن کاربر
     db_user = database.get_or_create_user(user.id, user.first_name)
     if not db_user:
         await update.message.reply_text("مشکلی در دسترسی به اطلاعات شما پیش آمد. لطفاً دوباره /start را بزنید.")
@@ -54,7 +51,6 @@ async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("شما توسط ادمین مسدود شده‌اید.")
         return False
 
-    # مرحله ۳: چک کردن عضویت در کانال‌ها
     for channel in config.FORCED_JOIN_CHANNELS:
         try:
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user.id)
@@ -75,7 +71,6 @@ async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT
 # جریان اصلی کار کاربر
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # <<< MODIFIED: چک کردن وضعیت ربات در دستور استارت نیز اضافه شد
     user = update.effective_user
     bot_is_on = database.get_setting('bot_status', 'true') == 'true'
     if not bot_is_on and user.id != config.ADMIN_ID:
@@ -116,7 +111,7 @@ async def service_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"✅ {cost} امتیاز از شما کسر شد. موجودی جدید: {new_points} امتیاز.\n\n"
             "لطفا ایدی عددی حساب کاربری خود در همین ربات، لینک کانال و پستی که می‌خواهید برای آن استارز زده شود را در قالب یک متن واحد برای ما ارسال کنید.\n\n"
-            "⚠️ مهم: در صورت عدم ارسال صحیح اطلاعات، سفارش شما انجام نخواهد شد.\n\n"
+            "⚠️ **مهم:** در صورت عدم ارسال صحیح اطلاعات، سفارش شما انجام نخواهد شد.\n\n"
             "برای انصراف /cancel را بزنید."
         )
         return AWAITING_STARS_DETAILS
@@ -169,7 +164,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = database.get_or_create_user(user.id, user.first_name)
     bot_username = (await context.bot.get_me()).username
     referral_link = f"https://t.me/{bot_username}?start={user.id}"
-    profile_text = f"👤 حساب کاربری شما\n\n🏷️ نام: {db_user['first_name']}\n🆔 آیدی: {user.id}\n⭐️ امتیاز: {db_user['points']}\n\n🔗 لینک دعوت شما:\n{referral_link}"
+    profile_text = f"👤 **حساب کاربری شما**\n\n🏷️ نام: {db_user['first_name']}\n🆔 آیدی: `{user.id}`\n⭐️ امتیاز: {db_user['points']}\n\n🔗 لینک دعوت شما:\n`{referral_link}`"
     await update.message.reply_text(profile_text, parse_mode=ParseMode.MARKDOWN)
 
 async def daily_bonus_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,11 +189,9 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 # جریان کار ادمین
 # ==============================================================================
-# <<< MODIFIED: پنل ادمین برای نمایش دکمه وضعیت ربات آپدیت شد
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != config.ADMIN_ID: return
 
-    # خواندن وضعیت‌ها از دیتابیس
     is_bot_on = database.get_setting('bot_status', 'true') == 'true'
     bot_status_text = "روشن 🟢" if is_bot_on else "خاموش 🔴"
     
@@ -206,26 +199,24 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     error_status_text = "فعال 🟢" if is_error_enabled else "غیرفعال 🔴"
     
     keyboard = [
-        # <<< NEW: دکمه جدید برای روشن/خاموش کردن ربات
         [InlineKeyboardButton(f"وضعیت ربات: {bot_status_text}", callback_data='toggle_bot_status')],
         [InlineKeyboardButton(f"خطای ثانویه: {error_status_text}", callback_data='toggle_secondary_error')],
         [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user'), InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')],
         [InlineKeyboardButton("لیست کاربران 👥", callback_data='admin_list_users')]
     ]
-    text = "به پنل مدیریت خوش آمدید.\n\nراهنمای امتیازدهی دستی:\n/addpoints <USER_ID> <AMOUNT>\n/removepoints <USER_ID> <AMOUNT>"
+    text = "به پنل مدیریت خوش آمدید.\n\n**راهنمای امتیازدهی دستی:**\n`/addpoints <USER_ID> <AMOUNT>`\n`/removepoints <USER_ID> <AMOUNT>`"
     
     if update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
-# <<< NEW: تابع کنترلر برای دکمه روشن/خاموش کردن ربات
 async def toggle_bot_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     is_on = database.get_setting('bot_status', 'true') == 'true'
     new_status = 'false' if is_on else 'true'
     database.set_setting('bot_status', new_status)
-    await admin_panel(update, context) # فراخوانی مجدد پنل برای آپدیت کیبورد
+    await admin_panel(update, context)
 
 async def toggle_secondary_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -241,7 +232,7 @@ async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
     if match:
         user_id_to_reply = int(match.group(1)); admin_text = update.message.text
         try:
-            await context.bot.send_message(chat_id=user_id_to_reply, text=f"📨 پاسخ از طرف پشتیبانی:\n\n{admin_text}", parse_mode=ParseMode.MARKDOWN)
+            await context.bot.send_message(chat_id=user_id_to_reply, text=f"📨 **پاسخ از طرف پشتیبانی:**\n\n{admin_text}", parse_mode=ParseMode.MARKDOWN)
             await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
         except Exception as e:
             await update.message.reply_text(f"❌ خطا در ارسال پیام به کاربر {user_id_to_reply}: {e}")
@@ -303,7 +294,7 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     users = database.get_all_users()
     if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
     user_list = "لیست کاربران:\n\n"
-    for user_data in users: user_list += f"👤 نام: {user_data[1]}\n🆔 آیدی: {user_data[0]}\n⭐️ امتیاز: {user_data[2]}\n\n"
+    for user_data in users: user_list += f"👤 نام: {user_data[1]}\n🆔 آیدی: `{user_data[0]}`\n⭐️ امتیاز: {user_data[2]}\n\n"
     await query.edit_message_text(user_list, parse_mode=ParseMode.MARKDOWN)
 
 # ==============================================================================
@@ -311,9 +302,8 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==============================================================================
 def main() -> None:
     database.init_db()
-    # <<< NEW: مقداردهی اولیه برای تنظیمات جدید در دیتابیس در صورت عدم وجود
     if not database.get_setting('bot_status'):
-        database.set_setting('bot_status', 'true') # ربات به طور پیش‌فرض روشن است
+        database.set_setting('bot_status', 'true')
     if not database.get_setting('secondary_error_enabled'):
         database.set_setting('secondary_error_enabled', 'false')
     if not database.get_setting('secondary_error_message'):
@@ -332,7 +322,6 @@ def main() -> None:
     manage_user_conv = ConversationHandler(entry_points=[CallbackQueryHandler(manage_user_entry, pattern='^admin_manage_user$')], states={AWAITING_USER_ID_MANAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_user_manage_options)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     set_cost_conv = ConversationHandler(entry_points=[CallbackQueryHandler(ask_for_new_cost, pattern='^setcost_.*$')], states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
 
-    # ثبت کنترلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(user_conv)
@@ -342,7 +331,6 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex('^امتیاز روزانه🎁$'), daily_bonus_handler))
     application.add_handler(MessageHandler(filters.Regex('^پشتیبانی📞$'), support_handler))
     
-    # <<< NEW: ثبت کنترلر جدید برای دکمه وضعیت ربات
     application.add_handler(CallbackQueryHandler(toggle_bot_status_callback, pattern='^toggle_bot_status$'))
     application.add_handler(CallbackQueryHandler(toggle_secondary_error_callback, pattern='^toggle_secondary_error$'))
     application.add_handler(MessageHandler(filters.REPLY & filters.User(config.ADMIN_ID), admin_reply_to_user))
@@ -353,10 +341,9 @@ def main() -> None:
     application.add_handler(CommandHandler("addpoints", add_points))
     application.add_handler(CommandHandler("removepoints", remove_points))
 
-    # راه‌اندازی ربات
     port = int(os.environ.get('PORT', 8443))
     logger.info(f"Starting webhook bot on port {port}")
     application.run_webhook(listen="0.0.0.0", port=port, url_path=config.BOT_TOKEN, webhook_url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}")
 
-if name == "main":
+if __name__ == "__main__":
     main()
