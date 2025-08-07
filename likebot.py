@@ -285,7 +285,9 @@ async def send_user_list_page(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = f"👥 **لیست کاربران (صفحه {page + 1})**\n\n"
     for user_id in paginated_users:
         score = data.get("referral_counts", {}).get(user_id, 0)
-        text += f"`{user_id}` - امتیاز: {score}\n"
+        banned = data.get("users", {}).get(user_id, {}).get("is_banned", False)
+        status = "🔴 بن‌شده" if banned else "🟢 فعال"
+        text += f"`{user_id}` - امتیاز: {score} - وضعیت: {status}\n"
 
     keyboard = []
     nav_buttons = []
@@ -545,4 +547,12 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r"^امتیاز روزانه🎁$"), daily_bonus))
     application.add_handler(MessageHandler(filters.Regex(r"^اطلاعات اکانت 👤$"), account_info))
     application.add_handler(MessageHandler(filters.Regex(r"^پشتیبانی📱$"), support))
-    application.add_handler(MessageHandler(filters.Reg
+    application.add_handler(MessageHandler(filters.Regex(r"^بازگشت به منوی کاربر$"), start))
+
+    # اجرای ربات
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))  # پورت پیش‌فرض Render
+    main()  # اجرای ربات
+    app.run(host="0.0.0.0", port=port)  # اجرای سرور وب
