@@ -180,31 +180,41 @@ async def generic_request_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     user_data.setdefault("referral_counts", {})[str(user.id)] = score - cost
     save_data(user_data, DATA_FILE)
-    await update.message.reply_text(f"✅ {cost} امتیاز کسر شد.\n{prompt}")
+    await update.message.reply_text(f"✅ {cost} امتیاز کسر شد.\n{prompt}", reply_markup=ReplyKeyboardRemove())
     return next_state
 
 async def free_like_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("User requested free like.")
     return await generic_request_start(update, context, "like", "آیدی رو بفرست:", AWAITING_LIKE_ID)
 
 async def free_star_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("User requested free star.")
     return await generic_request_start(update, context, "star", "آیدی و چنل رو بفرست:", AWAITING_STAR_INFO)
 
 async def forward_like_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     text = update.message.text
-    for admin_id in ADMIN_IDS:
-        await context.bot.send_message(chat_id=admin_id, text=f"📩 لایک از {user.id}: {text}")
-    await update.message.reply_text("✅ درخواستت رفت.")
-    await start(update, context)
+    logger.info(f"Forwarding like request from {user.id}: {text}")
+    try:
+        for admin_id in ADMIN_IDS:
+            await context.bot.send_message(chat_id=admin_id, text=f"📩 لایک از {user.id}: {text}")
+        await update.message.reply_text("✅ درخواستت رفت.", reply_markup=ReplyKeyboardMarkup([["بازگشت"]], resize_keyboard=True))
+    except Exception as e:
+        logger.error(f"Error forwarding like: {e}")
+        await update.message.reply_text("❌ خطا رخ داد، دوباره امتحان کن.")
     return ConversationHandler.END
 
 async def forward_star_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     text = update.message.text
-    for admin_id in ADMIN_IDS:
-        await context.bot.send_message(chat_id=admin_id, text=f"⭐ استار از {user.id}: {text}")
-    await update.message.reply_text("✅ درخواستت رفت.")
-    await start(update, context)
+    logger.info(f"Forwarding star request from {user.id}: {text}")
+    try:
+        for admin_id in ADMIN_IDS:
+            await context.bot.send_message(chat_id=admin_id, text=f"⭐ استار از {user.id}: {text}")
+        await update.message.reply_text("✅ درخواستت رفت.", reply_markup=ReplyKeyboardMarkup([["بازگشت"]], resize_keyboard=True))
+    except Exception as e:
+        logger.error(f"Error forwarding star: {e}")
+        await update.message.reply_text("❌ خطا رخ داد، دوباره امتحان کن.")
     return ConversationHandler.END
 
 # توابع پنل ادمین
