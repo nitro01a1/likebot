@@ -130,6 +130,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             user_info = data.get("users", {}).get(user_id_str, {})
             if "referred_by" not in user_info and "pending_referrer" not in user_info and user.id != referrer_id:
                 data["users"][user_id_str]["pending_referrer"] = referrer_id
+                data.setdefault("referral_counts", {})[str(referrer_id)] = data.get("referral_counts", {}).get(str(referrer_id), 0) + 1
+                save_data(data, DATA_FILE)
+                try:
+                    await context.bot.send_message(chat_id=referrer_id, text=f"✅ کاربر {user.first_name} با لینک شما وارد ربات شد و ۱ امتیاز به شما افزوده شد.")
+                except Exception as e:
+                    logger.warning(f"Could not send referral notification to {referrer_id}: {e}")
         except (ValueError, IndexError):
             pass
     save_data(data, DATA_FILE)
@@ -278,7 +284,8 @@ async def send_user_list_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     text = f"👥 **لیست کاربران (صفحه {page + 1})**\n\n"
     for user_id in paginated_users:
-        text += f"`{user_id}`\n"
+        score = data.get("referral_counts", {}).get(user_id, 0)
+        text += f"`{user_id}` - امتیاز: {score}\n"
 
     keyboard = []
     nav_buttons = []
@@ -422,6 +429,56 @@ async def manage_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("لطفا آیدی کاربر را برای مدیریت ارسال کنید:", reply_markup=ReplyKeyboardRemove())
     return AWAITING_USER_ID_FOR_MGMT
 
+async def manage_user_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.message.text
+    context.user_data['target_user_id'] = user_id
+    keyboard = [
+        ["اضافه کردن امتیاز"],
+        ["کم کردن امتیاز"],
+        ["بن کردن کاربر"],
+        ["بازگشت به پنل ادمین"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(f"عملیات برای کاربر با آیدی `{user_id}`:\nلطفاً گزینه مورد نظر را انتخاب کنید.", reply_markup=reply_markup, parse_mode='Markdown')
+    return AWAITING_ACTION_FOR_USER
+
+async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("لطفا مقدار امتیاز برای اضافه کردن را وارد کنید:", reply_markup=ReplyKeyboardRemove())
+    return AWAITING_POINTS_TO_ADD
+
+async def subtract_points(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("لطفا مقدار امتیاز برای کم کردن را وارد کنید:", reply_markup=ReplyKeyboardRemove())
+    return AWAITING_POINTS_TO_SUBTRACT
+
+async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data.get('target_user_id')
+    data = load_data(DATA_FILE, {"users": {}})
+    data.setdefault("users", {})[str(user_id)] = data.get("users", {}).get(str(user_id), {})
+    data["users"][str(user_id)]["is_banned"] = True
+    save_data(data, DATA_FILE)
+    await update.message.reply_text(f"✅ کاربر با آیدی `{user_id}` با موفقیت بن شد.")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+async def process_points(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> int:
+    try:
+        points = int(update.message.text)
+        user_id = context.user_data.get('target_user_id')
+        data = load_data(DATA_FILE, {"referral_counts": {}})
+        current_points = data.get("referral_counts", {}).get(str(user_id), 0)
+        if action == "add":
+            data.setdefault("referral_counts", {})[str(user_id)] = current_points + points
+            message = f"✅ {points} امتیاز به کاربر با آیدی `{user_id}` اضافه شد."
+        elif action == "subtract":
+            data.setdefault("referral_counts", {})[str(user_id)] = max(0, current_points - points)
+            message = f"✅ {points} امتیاز از کاربر با آیدی `{user_id}` کم شد."
+        save_data(data, DATA_FILE)
+        await update.message.reply_text(message, parse_mode='Markdown')
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید.")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("عملیات لغو شد.")
     if update.effective_user.id in ADMIN_IDS:
@@ -447,20 +504,26 @@ def main() -> None:
             AWAITING_STAR_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_star_info)],
             AWAITING_FF_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_ff_info)],
             AWAITING_STICKER_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, forward_sticker_info)],
-            AWAITING_USER_ID_FOR_MGMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: x)],
+            AWAITING_USER_ID_FOR_MGMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, manage_user_action)],
             AWAITING_ACTION_FOR_USER: [
                 MessageHandler(filters.Regex(r"^تنظیمات بخش (لایک 🔥|استارز ⭐|فری فایر 💻|استیکر 📷)$"), show_service_settings),
                 MessageHandler(filters.Regex(r"^تغییر هزینه \(فعلی: \d+\)$"), set_cost_start),
                 MessageHandler(filters.Regex(r"^تنظیم متن پاسخ خودکار$"), set_autoreply_message_start),
                 MessageHandler(filters.Regex(r"^پاسخ خودکار \(وضعیت: (🟢 فعال|🔴 غیرفعال)\)$"), toggle_autoreply_status),
                 MessageHandler(filters.Regex(r"^بازگشت به تنظیمات$"), bot_settings),
-                MessageHandler(filters.Regex(r"^خاموش/روشن کردن ربات$"), toggle_bot_status)
+                MessageHandler(filters.Regex(r"^خاموش/روشن کردن ربات$"), toggle_bot_status),
+                MessageHandler(filters.Regex(r"^اضافه کردن امتیاز$"), add_points),
+                MessageHandler(filters.Regex(r"^کم کردن امتیاز$"), subtract_points),
+                MessageHandler(filters.Regex(r"^بن کردن کاربر$"), ban_user),
+                MessageHandler(filters.Regex(r"^بازگشت به پنل ادمین$"), admin_panel)
             ],
             AWAITING_NEW_LIKE_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_STAR_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_FF_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_NEW_STICKER_COST: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost_end)],
             AWAITING_AUTOREPLY_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_autoreply_message_end)],
+            AWAITING_POINTS_TO_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: process_points(x, y, "add"))],
+            AWAITING_POINTS_TO_SUBTRACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda x, y: process_points(x, y, "subtract"))],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
@@ -482,12 +545,4 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r"^امتیاز روزانه🎁$"), daily_bonus))
     application.add_handler(MessageHandler(filters.Regex(r"^اطلاعات اکانت 👤$"), account_info))
     application.add_handler(MessageHandler(filters.Regex(r"^پشتیبانی📱$"), support))
-    application.add_handler(MessageHandler(filters.Regex(r"^بازگشت به منوی کاربر$"), start))
-
-    # اجرای ربات
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # پورت پیش‌فرض Render
-    main()  # اجرای ربات
-    app.run(host="0.0.0.0", port=port)  # اجرای سرور وب
+    application.add_handler(MessageHandler(filters.Reg
