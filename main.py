@@ -1,4 +1,4 @@
-# main.py (نسخه کامل و نهایی با تمام قابلیت‌ها)
+# main.py (نسخه کامل و نهایی با رفع باگ NameError)
 
 import logging
 import os
@@ -64,7 +64,7 @@ def calculate_transfer_tax(amount: int) -> int:
 
 async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
-    if not user: return False # در صورتی که کاربر مشخص نباشد
+    if not user: return False
 
     bot_is_on = database.get_setting('bot_status', 'true') == 'true'
     if not bot_is_on and user.id != config.ADMIN_ID:
@@ -310,13 +310,25 @@ async def toggle_secondary_error_callback(update: Update, context: ContextTypes.
     is_enabled = database.get_setting('secondary_error_enabled', 'false') == 'true'; new_status = 'false' if is_enabled else 'true'
     database.set_setting('secondary_error_enabled', new_status); await admin_panel(update, context)
 
+# <<< NEW: این تابع که جا افتاده بود، دوباره اضافه شد
+async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != config.ADMIN_ID or not update.message.reply_to_message: return
+    match = re.search(r"کاربر: .* \((\d+)\)", update.message.reply_to_message.text)
+    if match:
+        user_id_to_reply = int(match.group(1)); admin_text = update.message.text
+        try:
+            await context.bot.send_message(chat_id=user_id_to_reply, text=admin_text)
+            await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
+
 async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     page = 1
     if query.data and 'list_users_page_' in query.data: page = int(query.data.split('_')[-1])
     limit = 10; offset = (page - 1) * limit
     users = database.get_all_users(limit=limit, offset=offset)
-    total_users = database.get_user_count(); total_pages = math.ceil(total_users / limit)
+    total_users = database.get_user_count(); total_pages = math.ceil(total_users / limit) if total_users > 0 else 1
     if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
     user_list = f"👥 **لیست کاربران (صفحه {page}/{total_pages})**:\n\n"
     for user_data in users: user_list += f"👤 {user_data[1]}\n🆔 `{user_data[0]}` | ⭐️ {user_data[2]}\n\n"
@@ -324,8 +336,7 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if page > 1: row.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f'list_users_page_{page-1}'))
     row.append(InlineKeyboardButton(f"صفحه {page}", callback_data='noop'))
     if page < total_pages: row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'list_users_page_{page+1}'))
-    keyboard.append(row)
-    keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
+    keyboard.append(row); keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
     await query.edit_message_text(user_list, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -343,8 +354,7 @@ async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TY
     if page > 1: row.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f'transfer_history_page_{page-1}'))
     row.append(InlineKeyboardButton(f"صفحه {page}", callback_data='noop'))
     if page < total_pages: row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'transfer_history_page_{page+1}'))
-    keyboard.append(row)
-    keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
+    keyboard.append(row); keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def manage_services_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -454,20 +464,10 @@ def main() -> None:
 
     service_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex(f"^({'|'.join(SERVICE_MAP.keys())})$"), service_entry_point)], states={AWAITING_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_id_and_process)], AWAITING_STARS_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_stars_details_and_process)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     transfer_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex('^انتقال امتیاز 🔄$'), transfer_entry)], states={AWAITING_RECIPIENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_recipient_id)], AWAITING_TRANSFER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_transfer)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
-    
-    # گفتگوی ترکیبی برای تمام بخش‌های مدیریت کاربر
-    manage_user_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(manage_user_entry, pattern='^admin_manage_user$'), CallbackQueryHandler(ask_for_admin_message, pattern=r'^send_msg_')],
-        states={
-            AWAITING_USER_ID_MANAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_user_manage_options)],
-            AWAITING_ADMIN_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_message_from_admin)]
-        },
-        fallbacks=admin_base_conv_fallbacks, per_user=True
-    )
+    manage_user_conv = ConversationHandler(entry_points=[CallbackQueryHandler(manage_user_entry, pattern='^admin_manage_user$'), CallbackQueryHandler(ask_for_admin_message, pattern=r'^send_msg_')], states={AWAITING_USER_ID_MANAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_user_manage_options)], AWAITING_ADMIN_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_message_from_admin)]}, fallbacks=admin_base_conv_fallbacks, per_user=True)
     set_cost_conv = ConversationHandler(entry_points=[CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')], states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]}, fallbacks=admin_base_conv_fallbacks, per_user=True)
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("admin", admin_panel))
+    application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(service_conv); application.add_handler(transfer_conv); application.add_handler(manage_user_conv); application.add_handler(set_cost_conv)
 
     application.add_handler(MessageHandler(filters.Regex('^حساب کاربری👤$'), profile_handler)); application.add_handler(MessageHandler(filters.Regex('^امتیاز روزانه🎁$'), daily_bonus_handler)); application.add_handler(MessageHandler(filters.Regex('^پشتیبانی📞$'), support_handler)); application.add_handler(MessageHandler(filters.Regex('^🏆 نفرات برتر$'), show_top_users)); application.add_handler(MessageHandler(filters.REPLY & filters.User(config.ADMIN_ID), admin_reply_to_user))
@@ -481,4 +481,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
