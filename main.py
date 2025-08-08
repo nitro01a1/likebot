@@ -52,8 +52,8 @@ USER_SERVICES = {
 # ==============================================================================
 SERVICE_COSTS = {
     'free_like': 2,
-    'account_info': 2,
-    'free_stars': 5,
+    'account_info': 1,
+    'free_stars': 3,
     'teddy_gift': 35
 }
 # ==============================================================================
@@ -176,7 +176,7 @@ async def daily_bonus_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             hours, rem = divmod(remaining_time.seconds, 3600); minutes, _ = divmod(rem, 60)
             await update.message.reply_text(f"شما قبلا امتیاز روزانه خود را دریافت کرده‌اید.\nزمان باقی‌مانده: {hours} ساعت و {minutes} دقیقه")
             return
-    bonus_points = random.randint(1, 3)
+    bonus_points = random.randint(1, 5)
     database.update_points(user.id, bonus_points); database.set_daily_claim(user.id)
     current_points = db_user.get('points', 0) + bonus_points
     await update.message.reply_text(f"🎁 تبریک! شما {bonus_points} امتیاز روزانه دریافت کردید.\nموجودی فعلی: {current_points} امتیاز")
