@@ -123,7 +123,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             referrer_id = int(context.args[0])
             if referrer_id != user.id:
                 database.get_or_create_user(user.id, user.first_name, referred_by=referrer_id)
-                database.update_points(referrer_id, 2)
+                database.update_points(referrer_id, 1)
                 await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و ۲ امتیاز دریافت کردید!")
         except (ValueError, IndexError):
             database.get_or_create_user(user.id, user.first_name)
