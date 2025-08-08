@@ -155,7 +155,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 لینک دعوت شما:\n{referral_link}"
         )
         
-        await update.message.reply_text(profile_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(profile_text)
 
     except Exception as e:
         logger.error(f"Error in show_profile for user {update.effective_user.id}: {e}")
@@ -199,7 +199,7 @@ async def show_top_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"🏷️ نام: {name}\n"
         text += f"⭐️ امتیاز: {points}\n"
         text += f"🆔 آیدی: {user_id}\n\n"
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text)
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     cost = context.user_data.get('cost')
@@ -504,7 +504,7 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'list_users_page_{page+1}'))
     keyboard.append(row)
     keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
-    await query.edit_message_text(user_list, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    await query.edit_message_text(user_list, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); page = 1
@@ -525,7 +525,7 @@ async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TY
     row.append(InlineKeyboardButton(f"صفحه {page}", callback_data='noop'))
     if page < total_pages: row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'transfer_history_page_{page+1}'))
     keyboard.append(row); keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def manage_services_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); keyboard = []
@@ -567,7 +567,7 @@ async def show_user_manage_options(update: Update, context: ContextTypes.DEFAULT
                  InlineKeyboardButton("آنبن کردن ✅", callback_data=f"unban_{user_id_to_manage}")], 
                 [InlineKeyboardButton("ارسال پیام 📨", callback_data=f"send_msg_{user_id_to_manage}")], 
                 [InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]]
-    await update.message.reply_text(profile_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(profile_text, reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 async def ask_for_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -651,7 +651,7 @@ async def show_gift_code_users(update: Update, context: ContextTypes.DEFAULT_TYP
     if not users:
         text = f"هنوز هیچ کاربری از کد {code} استفاده نکرده است."; 
         keyboard = [[InlineKeyboardButton(" بازگشت ↩️", callback_data='list_gift_codes')]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN); return
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard)); return
     limit = 10; offset = (page - 1) * limit; total_users = len(users); total_pages = math.ceil(total_users / limit)
     paginated_users = users[offset : offset + limit]
     text = f"👥 **کاربران کد {code} (صفحه {page}/{total_pages})**\n\n"
