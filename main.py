@@ -53,8 +53,8 @@ USER_SERVICES = {
 SERVICE_COSTS = {
     'free_like': 2,
     'account_info': 1,
-    'free_stars': 3,
-    'teddy_gift': 35
+    'free_stars': 4,
+    'teddy_gift': 40
 }
 # ==============================================================================
 
@@ -124,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if referrer_id != user.id:
                 database.get_or_create_user(user.id, user.first_name, referred_by=referrer_id)
                 database.update_points(referrer_id, 1)
-                await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و ۲ امتیاز دریافت کردید!")
+                await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و 1 امتیاز دریافت کردید!")
         except (ValueError, IndexError):
             database.get_or_create_user(user.id, user.first_name)
     elif not user_already_exists:
