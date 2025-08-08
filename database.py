@@ -1,4 +1,4 @@
-# database.py
+# database.py (نسخه کامل و نهایی برای PythonAnywhere با SQLite)
 
 import sqlite3
 from datetime import datetime, date
@@ -42,12 +42,20 @@ def init_db():
             timestamp TEXT NOT NULL
         )
     ''')
-    
     conn.commit()
-    
-    # افزودن هزینه‌های پیش‌فرض در صورتی که وجود نداشته باشند
-    default_costs = {'cost_free_like': '1', 'cost_account_info': '1', 'cost_free_stars': '3'}
-    for key, value in default_costs.items():
+
+    # افزودن هزینه‌ها و وضعیت‌های پیش‌فرض سرویس‌ها در صورتی که وجود نداشته باشند
+    default_settings = {
+        'cost_free_like': '1', 'cost_account_info': '1', 'cost_free_stars': '3',
+        'cost_teddy_gift': '35',
+        'service_free_like_status': 'true',
+        'service_account_info_status': 'true',
+        'service_free_stars_status': 'true',
+        'service_teddy_gift_status': 'true',
+        'service_daily_bonus_status': 'true',
+        'service_transfer_points_status': 'true'
+    }
+    for key, value in default_settings.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
     
     conn.commit()
@@ -75,7 +83,7 @@ def set_setting(key: str, value: str):
 def get_or_create_user(user_id, first_name, referred_by=None):
     """گرفتن اطلاعات کاربر یا ساخت کاربر جدید در صورت عدم وجود."""
     conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row # برای دسترسی به ستون‌ها با نام
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
