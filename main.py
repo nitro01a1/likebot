@@ -473,7 +473,7 @@ async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
     if match:
         user_id_to_reply = int(match.group(1)); admin_text = update.message.text
         try: 
-            await context.bot.send_message(chat_id=user_id_to_reply, text=f"پاسخ از طرف پشتیبانی:\n\n{admin_text}")
+            await context.bot.send_message(chat_id=user_id_to_reply, text=admin_text)
             await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
         except Exception as e: 
             await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
