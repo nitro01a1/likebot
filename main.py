@@ -1,4 +1,4 @@
-# main.py (نسخه ویرایش شده با هزینه‌های ثابت در کد)
+# main.py (نسخه نهایی و اصلاح شده)
 
 import logging
 import os
@@ -43,9 +43,9 @@ USER_SERVICES = {
 }
 
 # ==============================================================================
-#                     ✅ بخش جدید تنظیمات هزینه‌ها ✅
+#                     ✅ بخش تنظیمات هزینه‌ها ✅
 # ==============================================================================
-# از این به بعد، برای تغییر هزینه هر سرویس، فقط عدد آن را در اینجا ویرایش کنید
+# برای تغییر هزینه هر سرویس، فقط عدد آن را در اینجا ویرایش کنید
 SERVICE_COSTS = {
     'free_like': 2,
     'account_info': 1,
@@ -119,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             referrer_id = int(context.args[0])
             if referrer_id != user.id:
                 database.get_or_create_user(user.id, user.first_name, referred_by=referrer_id)
-                database.update_points(referrer_id, 2) # امتیاز رفرال
+                database.update_points(referrer_id, 2)
                 await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و 2 امتیاز دریافت کردید!")
         except (ValueError, IndexError):
             database.get_or_create_user(user.id, user.first_name)
@@ -203,7 +203,6 @@ async def service_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
     if not await check_user_preconditions(update, context): return ConversationHandler.END
     
-    # ✅ تغییر اصلی اینجاست: هزینه از دیکشنری بالای کد خوانده می‌شود
     cost = SERVICE_COSTS.get(service_key, 1)
     
     user = update.effective_user
@@ -231,7 +230,7 @@ async def receive_id_and_process(update: Update, context: ContextTypes.DEFAULT_T
         if not details.isdigit():
             await update.message.reply_text("❌ ورودی نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_ID
         if not (5 <= len(details) <= 14):
-            await update.message.reply_text("❌ ایدی اشتباه است"); return AWAITING_ID
+            await update.message.reply_text("❌ تعداد ارقام باید بین ۵ تا ۱۴ باشد."); return AWAITING_ID
     service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
     forward_text = f"درخواست جدید:\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n اطلاعات ارسالی: {details}"
     await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
@@ -250,10 +249,6 @@ async def receive_stars_details_and_process(update: Update, context: ContextType
     await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
     await update.message.reply_text("✅ سفارش شما ثبت و در صف بررسی قرار گرفت.", reply_markup=get_main_reply_keyboard())
     context.user_data.clear(); return ConversationHandler.END
-
-# ... (تمام توابع دیگر تا بخش کنترلرهای پنل ادمین بدون تغییر باقی می‌مانند) ...
-# ... (transfer_entry, receive_recipient_id, process_transfer, etc.) ...
-# ... (gift_code_button_entry, process_gift_code_input, etc.) ...
 
 # ==============================================================================
 # گفتگوی انتقال امتیاز
@@ -344,7 +339,6 @@ async def process_gift_code_input(update: Update, context: ContextTypes.DEFAULT_
 # کنترلرهای پنل ادمین
 # ==============================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پنل اصلی مدیریت با محدودیت چت خصوصی"""
     chat = update.effective_chat
     if chat.type != 'private':
         if update.callback_query:
@@ -358,7 +352,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     keyboard = [
         [InlineKeyboardButton("پنل کد هدیه 🎁", callback_data='gift_code_panel')],
         [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user')],
-        # [InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')], # این دکمه دیگر لازم نیست
         [InlineKeyboardButton("مدیریت وضعیت سرویس‌ها 🔧", callback_data='admin_manage_services')],
         [InlineKeyboardButton("تاریخچه انتقالات 📜", callback_data='admin_transfer_history_page_1')],
         [InlineKeyboardButton("لیست کاربران 👥", callback_data='list_users_page_1')],
@@ -372,7 +365,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دستور اهدای امتیاز با محدودیت چت خصوصی"""
     if update.message.chat.type != 'private':
         await update.message.reply_text("این دستور فقط در چت خصوصی با ربات قابل استفاده است.")
         return
@@ -386,7 +378,6 @@ async def add_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("استفاده: /addpoints <USER_ID> <AMOUNT>")
 
 async def remove_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دستور کسر امتیاز با محدودیت چت خصوصی"""
     if update.message.chat.type != 'private':
         await update.message.reply_text("این دستور فقط در چت خصوصی با ربات قابل استفاده است.")
         return
@@ -468,18 +459,38 @@ async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
 
 async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer(); page = 1
-    if query.data and 'list_users_page_' in query.data: page = int(query.data.split('_')[-1])
-    limit = 10; offset = (page - 1) * limit; users = database.get_all_users(limit=limit, offset=offset)
-    total_users = database.get_user_count(); total_pages = math.ceil(total_users / limit) if total_users > 0 else 1
-    if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
+    query = update.callback_query
+    await query.answer()
+    
+    page = 1
+    if query.data and 'list_users_page_' in query.data:
+        page = int(query.data.split('_')[-1])
+        
+    limit = 10
+    offset = (page - 1) * limit
+    users = database.get_all_users(limit=limit, offset=offset)
+    total_users = database.get_user_count()
+    total_pages = math.ceil(total_users / limit) if total_users > 0 else 1
+
+    if not users:
+        await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است.")
+        return
+
     user_list = f"👥 لیست کاربران (صفحه {page}/{total_pages}):\n\n"
-    for user_data in users: user_list += f"👤 {user_data[1]}\n🆔 {user_data[0]} | ⭐️ {user_data[2]}\n\n"
-    keyboard = []; row = []
-    if page > 1: row.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f'list_users_page_{page-1}'))
+    for user_data in users:
+        user_list += f"👤 {user_data[1]}\n🆔 {user_data[0]} | ⭐️ {user_data[2]}\n\n"
+
+    keyboard = []
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f'list_users_page_{page-1}'))
     row.append(InlineKeyboardButton(f"صفحه {page}", callback_data='noop'))
-    if page < total_pages: row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'list_users_page_{page+1}'))
-    keyboard.append(row); keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
+    if page < total_pages:
+        row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f'list_users_page_{page+1}'))
+    
+    keyboard.append(row)
+    keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
+    
     await query.edit_message_text(user_list, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -571,11 +582,6 @@ async def perform_ban_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         database.set_ban_status(user_id, False)
         await query.edit_message_text(f"کاربر {user_id} از مسدودیت خارج شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]]))
 
-# توابع مربوط به تنظیم هزینه از پنل ادمین دیگر لازم نیستند، چون هزینه‌ها در کد ثابت شده‌اند
-# async def set_costs_entry ...
-# async def ask_for_new_cost ...
-# async def set_new_cost ...
-    
 async def gift_code_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     keyboard = [[InlineKeyboardButton("افزودن کد جدید ➕", callback_data='add_gift_code_entry')], 
@@ -708,14 +714,6 @@ def main() -> None:
         per_user=True
     )
     
-    # ✅ این بخش دیگر لازم نیست و برای جلوگیری از خطا حذف یا کامنت می‌شود
-    # set_cost_conv = ConversationHandler(
-    #     entry_points=[CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')],
-    #     states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]},
-    #     fallbacks=admin_base_conv_fallbacks,
-    #     per_user=True
-    # )
-
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(gift_conv)
@@ -723,7 +721,6 @@ def main() -> None:
     application.add_handler(transfer_conv)
     application.add_handler(add_gift_conv)
     application.add_handler(manage_user_conv)
-    # application.add_handler(set_cost_conv) # ✅ این خط هم غیرفعال می‌شود
     application.add_handler(secondary_error_conv)
 
     application.add_handler(MessageHandler(filters.Regex('^حساب کاربری👤$'), profile_handler))
@@ -735,7 +732,11 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^back_to_admin_panel$'))
     application.add_handler(CallbackQueryHandler(toggle_bot_status_callback, pattern='^toggle_bot_status$'))
     application.add_handler(CallbackQueryHandler(show_transfer_history, pattern=r'^admin_transfer_history_page_'))
-    application.add_handler(CallbackQueryHandler(list_users_callback, pattern=r'^list_users_page_'))
+    
+    # ✅✅✅ اصلاحیه اصلی اینجاست ✅✅✅
+    # با استفاده از lambda، مشکل صفحه بندی لیست کاربران حل می‌شود
+    application.add_handler(CallbackQueryHandler(list_users_callback, pattern=lambda data: data and data.startswith('list_users_page_')))
+    
     application.add_handler(CallbackQueryHandler(perform_ban_unban, pattern=r'^(ban|unban)_'))
     application.add_handler(CallbackQueryHandler(manage_services_menu, pattern='^admin_manage_services$'))
     application.add_handler(CallbackQueryHandler(toggle_service_status, pattern=r'^toggle_service_'))
