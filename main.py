@@ -1,4 +1,4 @@
-# main.py (نسخه کامل و نهایی با دکمه کد هدیه برای کاربر)
+# main.py (نسخه کامل و نهایی با نمایش تعداد رفرال)
 
 import logging
 import os
@@ -17,7 +17,7 @@ from telegram.constants import ParseMode
 import config
 import database
 
-# --- تنظیمات اولیه و استیت‌ها ---
+# --- تنظیمات اولیه ---
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,35 +27,29 @@ AWAITING_USER_ID_MANAGE, AWAITING_COST_AMOUNT = range(2, 4)
 AWAITING_RECIPIENT_ID, AWAITING_TRANSFER_AMOUNT = range(4, 6)
 AWAITING_ADMIN_MESSAGE = 7
 AWAITING_GIFT_CODE_DETAILS = 8
-AWAITING_GIFT_CODE_INPUT = 9 # استیت جدید برای دریافت کد هدیه از کاربر
+AWAITING_GIFT_CODE_INPUT = 9 
 
 # دیکشنری سرویس‌ها
 SERVICE_MAP = {
-    'لایک رایگان🔥': 'free_like',
-    'اطلاعات اکانت📄': 'account_info',
-    'استارز رایگان⭐': 'free_stars',
-    'گیفت تدی🗿': 'teddy_gift'
+    'لایک رایگان🔥': 'free_like', 'اطلاعات اکانت📄': 'account_info',
+    'استارز رایگان⭐': 'free_stars', 'گیفت تدی🗿': 'teddy_gift'
 }
 SERVICE_NAME_MAP_FA = {v: k for k, v in SERVICE_MAP.items()}
 USER_SERVICES = {
-    'free_like': 'لایک رایگان🔥',
-    'account_info': 'اطلاعات اکانت📄',
-    'free_stars': 'استارز رایگان⭐',
-    'teddy_gift': 'گیفت تدی🗿',
-    'daily_bonus': 'امتیاز روزانه🎁',
-    'transfer_points': 'انتقال امتیاز 🔄'
+    'free_like': 'لایک رایگان🔥', 'account_info': 'اطلاعات اکانت📄',
+    'free_stars': 'استارز رایگان⭐', 'teddy_gift': 'گیفت تدی🗿',
+    'daily_bonus': 'امتیاز روزانه🎁', 'transfer_points': 'انتقال امتیاز 🔄'
 }
 
 # ==============================================================================
 # توابع کمکی و کیبورد
 # ==============================================================================
 def get_main_reply_keyboard():
-    """کیبورد اصلی کاربران با دکمه جدید کد هدیه"""
     return ReplyKeyboardMarkup([
         ['لایک رایگان🔥', 'اطلاعات اکانت📄', 'استارز رایگان⭐'],
         ['گیفت تدی🗿', 'امتیاز روزانه🎁', 'انتقال امتیاز 🔄'],
         ['حساب کاربری👤', '🏆 نفرات برتر', 'پشتیبانی📞'],
-        ['کد هدیه 🎁']  # دکمه جدید در یک ردیف جدا
+        ['کد هدیه 🎁']
     ], resize_keyboard=True)
 
 def calculate_transfer_tax(amount: int) -> int:
@@ -70,16 +64,12 @@ def calculate_transfer_tax(amount: int) -> int:
 async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     if not user: return False
-
     bot_is_on = database.get_setting('bot_status', 'true') == 'true'
     if not bot_is_on and user.id != config.ADMIN_ID:
         reply_text = "🔴 ربات در حال حاضر در حال تعمیر و بروزرسانی است. لطفا بعدا تلاش کنید."
-        if update.message:
-            await update.message.reply_text(reply_text, reply_markup=ReplyKeyboardRemove())
-        elif update.callback_query:
-            await update.callback_query.answer(reply_text, show_alert=True)
+        if update.message: await update.message.reply_text(reply_text, reply_markup=ReplyKeyboardRemove())
+        elif update.callback_query: await update.callback_query.answer(reply_text, show_alert=True)
         return False
-        
     db_user = database.get_or_create_user(user.id, user.first_name)
     if not db_user:
         if update.message: await update.message.reply_text("مشکلی در دسترسی به اطلاعات شما پیش آمد.")
@@ -87,7 +77,6 @@ async def check_user_preconditions(update: Update, context: ContextTypes.DEFAULT
     if db_user.get('is_banned'):
         if update.message: await update.message.reply_text("شما توسط ادمین مسدود شده‌اید.", reply_markup=ReplyKeyboardRemove())
         return False
-        
     for channel in config.FORCED_JOIN_CHANNELS:
         try:
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user.id)
@@ -124,13 +113,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         database.get_or_create_user(user.id, user.first_name)
     await update.message.reply_text(f"سلام {user.first_name}! به ربات ما خوش آمدید.", reply_markup=get_main_reply_keyboard())
 
+# --- تابع تغییر یافته ---
 async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پروفایل کاربر با نمایش تعداد زیرمجموعه"""
     if not await check_user_preconditions(update, context): return
     user = update.effective_user
     db_user = database.get_or_create_user(user.id, user.first_name)
     bot_username = (await context.bot.get_me()).username
     referral_link = f"https://t.me/{bot_username}?start={user.id}"
-    profile_text = f"👤 **حساب کاربری شما**\n\n🏷️ نام: {db_user['first_name']}\n🆔 آیدی: `{user.id}`\n⭐️ امتیاز: {db_user['points']}\n\n🔗 لینک دعوت شما:\n`{referral_link}`"
+    
+    # گرفتن تعداد زیرمجموعه‌ها از دیتابیس
+    referral_count = database.get_referral_count(user.id)
+    
+    profile_text = (
+        f"👤 **حساب کاربری شما**\n\n"
+        f"🏷️ نام: {db_user['first_name']}\n"
+        f"🆔 آیدی: `{user.id}`\n"
+        f"⭐️ امتیاز: {db_user['points']}\n"
+        f"👥 **تعداد زیرمجموعه:** {referral_count} نفر\n\n" # خط جدید
+        f"🔗 لینک دعوت شما:\n`{referral_link}`"
+    )
     await update.message.reply_text(profile_text, parse_mode=ParseMode.MARKDOWN)
 
 async def daily_bonus_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,205 +184,111 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.clear()
     return ConversationHandler.END
 
-# ==============================================================================
-# گفتگوی دریافت خدمات
-# ==============================================================================
+# بقیه کنترلرهای کاربر و مکالمات بدون تغییر
+# ... (service_entry_point, transfer_entry, gift_code_button_entry, etc.)
 async def service_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    service_key = SERVICE_MAP.get(update.message.text)
-    if database.get_setting(f'service_{service_key}_status', 'true') == 'false':
-        await update.message.reply_text("❌ این سرویس در حال حاضر توسط مدیر غیرفعال شده است.")
-        return ConversationHandler.END
+    service_key = SERVICE_MAP.get(update.message.text);
+    if database.get_setting(f'service_{service_key}_status', 'true') == 'false': await update.message.reply_text("❌ این سرویس در حال حاضر توسط مدیر غیرفعال شده است."); return ConversationHandler.END
     if not await check_user_preconditions(update, context): return ConversationHandler.END
-    cost = int(database.get_setting(f'cost_{service_key}', '1'))
-    user = update.effective_user
-    db_user = database.get_or_create_user(user.id, user.first_name)
-    if db_user['points'] < cost:
-        await update.message.reply_text(f"❌ امتیاز شما برای «{update.message.text}» کافی نیست! (نیاز به {cost} امتیاز)")
-        return ConversationHandler.END
-    context.user_data['service_key'] = service_key; context.user_data['cost'] = cost
-    database.update_points(user.id, -cost)
-    new_points = database.get_or_create_user(user.id, user.first_name)['points']
-    prompt_message = "برای تکمیل سفارش، آیدی عددی خود را ارسال کنید.\nبرای لغو /cancel را بزنید."
-    if service_key == 'teddy_gift':
-        prompt_message = "لطفاً آیدی عددی و آیدی اکانت تلگرام خود (مثلا @username) را در یک پیام وارد کنید.\nبرای لغو /cancel را بزنید."
+    cost = int(database.get_setting(f'cost_{service_key}', '1')); user = update.effective_user; db_user = database.get_or_create_user(user.id, user.first_name)
+    if db_user['points'] < cost: await update.message.reply_text(f"❌ امتیاز شما برای «{update.message.text}» کافی نیست! (نیاز به {cost} امتیاز)"); return ConversationHandler.END
+    context.user_data['service_key'] = service_key; context.user_data['cost'] = cost; database.update_points(user.id, -cost)
+    new_points = database.get_or_create_user(user.id, user.first_name)['points']; prompt_message = "برای تکمیل سفارش، آیدی عددی خود را ارسال کنید.\nبرای لغو /cancel را بزنید."
+    if service_key == 'teddy_gift': prompt_message = "لطفاً آیدی عددی و آیدی اکانت تلگرام خود (مثلا @username) را در یک پیام وارد کنید.\nبرای لغو /cancel را بزنید."
     elif service_key == 'free_stars':
          prompt_message = "لطفا ایدی عددی حساب خود در ربات، لینک کانال و پست را در یک متن ارسال کنید.\nبرای لغو /cancel را بزنید."
-         await update.message.reply_text(f"✅ {cost} امتیاز کسر شد. موجودی جدید: {new_points}.\n\n{prompt_message}")
-         return AWAITING_STARS_DETAILS
-    await update.message.reply_text(f"✅ {cost} امتیاز کسر شد. موجودی جدید: {new_points}.\n\n{prompt_message}")
-    return AWAITING_ID
-
+         await update.message.reply_text(f"✅ {cost} امتیاز کسر شد. موجودی جدید: {new_points}.\n\n{prompt_message}"); return AWAITING_STARS_DETAILS
+    await update.message.reply_text(f"✅ {cost} امتیاز کسر شد. موجودی جدید: {new_points}.\n\n{prompt_message}"); return AWAITING_ID
 async def receive_id_and_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not await check_user_preconditions(update, context): return ConversationHandler.END
     user = update.effective_user; details = update.message.text; service_key = context.user_data.get('service_key')
     if service_key in ['free_like', 'account_info']:
-        if not details.isdigit():
-            await update.message.reply_text("❌ ورودی نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_ID
-        if not (5 <= len(details) <= 14):
-            await update.message.reply_text("❌ تعداد ارقام باید بین ۵ تا ۱۴ باشد."); return AWAITING_ID
-    service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
-    forward_text = f"درخواست جدید:\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n اطلاعات ارسالی: {details}"
-    await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
-    final_message = "سفارش شما با موفقیت ثبت شد صبور باشید✅" if service_key == 'teddy_gift' else "درخواست شما با موفقیت ثبت شد."
+        if not details.isdigit(): await update.message.reply_text("❌ ورودی نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_ID
+        if not (5 <= len(details) <= 14): await update.message.reply_text("❌ تعداد ارقام باید بین ۵ تا ۱۴ باشد."); return AWAITING_ID
+    service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص"); forward_text = f"درخواست جدید:\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n اطلاعات ارسالی: {details}"
+    await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text); final_message = "سفارش شما با موفقیت ثبت شد صبور باشید✅" if service_key == 'teddy_gift' else "درخواست شما با موفقیت ثبت شد."
     sent_message = await update.message.reply_text(f"{final_message}\nامتیاز شما: {database.get_or_create_user(user.id, user.first_name)['points']}")
     is_secondary_error_enabled = database.get_setting('secondary_error_enabled', 'false') == 'true'
-    if is_secondary_error_enabled and service_key in ['free_like', 'account_info']:
-        await sent_message.reply_text(database.get_setting('secondary_error_message'))
+    if is_secondary_error_enabled and service_key in ['free_like', 'account_info']: await sent_message.reply_text(database.get_setting('secondary_error_message'))
     context.user_data.clear(); return ConversationHandler.END
-
 async def receive_stars_details_and_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not await check_user_preconditions(update, context): return ConversationHandler.END
     user = update.effective_user; details_text = update.message.text; service_key = context.user_data.get('service_key')
-    service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
-    forward_text = (f"درخواست (استارز):\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n\nجزئیات:\n{details_text}")
-    await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
-    await update.message.reply_text("✅ سفارش شما ثبت و در صف بررسی قرار گرفت.", reply_markup=get_main_reply_keyboard())
+    service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص"); forward_text = (f"درخواست (استارز):\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n\nجزئیات:\n{details_text}")
+    await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text); await update.message.reply_text("✅ سفارش شما ثبت و در صف بررسی قرار گرفت.", reply_markup=get_main_reply_keyboard())
     context.user_data.clear(); return ConversationHandler.END
-
-# ==============================================================================
-# گفتگوی انتقال امتیاز
-# ==============================================================================
 async def transfer_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if database.get_setting('service_transfer_points_status', 'true') == 'false':
-        await update.message.reply_text("❌ این سرویس در حال حاضر توسط مدیر غیرفعال شده است.")
-        return ConversationHandler.END
+    if database.get_setting('service_transfer_points_status', 'true') == 'false': await update.message.reply_text("❌ این سرویس در حال حاضر توسط مدیر غیرفعال شده است."); return ConversationHandler.END
     if not await check_user_preconditions(update, context): return ConversationHandler.END
-    user = update.effective_user; db_user = database.get_or_create_user(user.id, user.first_name)
-    today_str = date.today().isoformat()
-    if db_user.get('last_transfer_date') == today_str:
-        await update.message.reply_text("❌ شما امروز سهمیه انتقال امتیاز خود را استفاده کرده‌اید."); return ConversationHandler.END
+    user = update.effective_user; db_user = database.get_or_create_user(user.id, user.first_name); today_str = date.today().isoformat()
+    if db_user.get('last_transfer_date') == today_str: await update.message.reply_text("❌ شما امروز سهمیه انتقال امتیاز خود را استفاده کرده‌اید."); return ConversationHandler.END
     await update.message.reply_text("🔹 لطفاً آیدی عددی کاربر گیرنده را وارد کنید.\n\nبرای لغو /cancel را بزنید."); return AWAITING_RECIPIENT_ID
-
 async def receive_recipient_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not await check_user_preconditions(update, context): return ConversationHandler.END
     recipient_id_str = update.message.text; sender_id = update.effective_user.id
-    if not recipient_id_str.isdigit():
-        await update.message.reply_text("❌ آیدی نامعتبر است. لطفاً فقط آیدی عددی ارسال کنید."); return AWAITING_RECIPIENT_ID
+    if not recipient_id_str.isdigit(): await update.message.reply_text("❌ آیدی نامعتبر است. لطفاً فقط آیدی عددی ارسال کنید."); return AWAITING_RECIPIENT_ID
     recipient_id = int(recipient_id_str)
-    if recipient_id == sender_id:
-        await update.message.reply_text("❌ شما نمی‌توانید به خودتان امتیاز انتقال دهید!"); return AWAITING_RECIPIENT_ID
+    if recipient_id == sender_id: await update.message.reply_text("❌ شما نمی‌توانید به خودتان امتیاز انتقال دهید!"); return AWAITING_RECIPIENT_ID
     recipient_user = database.get_or_create_user(recipient_id, "Unknown")
-    if not recipient_user:
-        await update.message.reply_text("❌ کاربری با این آیدی یافت نشد."); return AWAITING_RECIPIENT_ID
+    if not recipient_user: await update.message.reply_text("❌ کاربری با این آیدی یافت نشد."); return AWAITING_RECIPIENT_ID
     context.user_data['recipient_id'] = recipient_id; context.user_data['recipient_name'] = recipient_user.get('first_name')
     await update.message.reply_text(f"✅ کاربر «{recipient_user.get('first_name')}» یافت شد.\n\n🔹 لطفاً تعداد امتیاز انتقالی را وارد کنید (حداقل ۳)."); return AWAITING_TRANSFER_AMOUNT
-
 async def process_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not await check_user_preconditions(update, context): return ConversationHandler.END
     sender = update.effective_user; amount_str = update.message.text
-    if not amount_str.isdigit():
-        await update.message.reply_text("❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_TRANSFER_AMOUNT
-    amount_to_send = int(amount_str)
-    sender_db_user = database.get_or_create_user(sender.id, sender.first_name)
-    if amount_to_send < 3:
-        await update.message.reply_text("❌ حداقل امتیاز برای انتقال ۳ می‌باشد."); return AWAITING_TRANSFER_AMOUNT
-    if sender_db_user['points'] < amount_to_send:
-        await update.message.reply_text(f"❌ امتیاز شما کافی نیست! (موجودی: {sender_db_user['points']})"); return ConversationHandler.END
-    recipient_id = context.user_data['recipient_id']; recipient_name = context.user_data['recipient_name']
-    tax = calculate_transfer_tax(amount_to_send); amount_received = amount_to_send - tax
-    database.update_points(sender.id, -amount_to_send)
-    database.update_points(recipient_id, amount_received)
-    database.set_transfer_date(sender.id)
+    if not amount_str.isdigit(): await update.message.reply_text("❌ مبلغ نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_TRANSFER_AMOUNT
+    amount_to_send = int(amount_str); sender_db_user = database.get_or_create_user(sender.id, sender.first_name)
+    if amount_to_send < 3: await update.message.reply_text("❌ حداقل امتیاز برای انتقال ۳ می‌باشد."); return AWAITING_TRANSFER_AMOUNT
+    if sender_db_user['points'] < amount_to_send: await update.message.reply_text(f"❌ امتیاز شما کافی نیست! (موجودی: {sender_db_user['points']})"); return ConversationHandler.END
+    recipient_id = context.user_data['recipient_id']; recipient_name = context.user_data['recipient_name']; tax = calculate_transfer_tax(amount_to_send); amount_received = amount_to_send - tax
+    database.update_points(sender.id, -amount_to_send); database.update_points(recipient_id, amount_received); database.set_transfer_date(sender.id)
     database.log_transfer(sender_id=sender.id, sender_name=sender.first_name, recipient_id=recipient_id, recipient_name=recipient_name, amount_sent=amount_to_send, tax=tax, amount_received=amount_received)
-    sender_new_balance = sender_db_user['points'] - amount_to_send
-    recipient_new_balance = database.get_or_create_user(recipient_id, recipient_name)['points']
+    sender_new_balance = sender_db_user['points'] - amount_to_send; recipient_new_balance = database.get_or_create_user(recipient_id, recipient_name)['points']
     await update.message.reply_text(f"✅ شما {amount_to_send} امتیاز به {recipient_name} انتقال دادید.\nموجودی شما: {sender_new_balance}", reply_markup=get_main_reply_keyboard())
-    try:
-        await context.bot.send_message(chat_id=recipient_id, text=(f"🎉 کاربر {sender.first_name} برای شما {amount_received} امتیاز انتقال داد.\nموجودی جدید: {recipient_new_balance}"))
-    except Exception as e:
-        logger.error(f"Could not send transfer notification to {recipient_id}: {e}")
+    try: await context.bot.send_message(chat_id=recipient_id, text=(f"🎉 کاربر {sender.first_name} برای شما {amount_received} امتیاز انتقال داد.\nموجودی جدید: {recipient_new_balance}"))
+    except Exception as e: logger.error(f"Could not send transfer notification to {recipient_id}: {e}")
     context.user_data.clear(); return ConversationHandler.END
-
-# ==============================================================================
-# مکالمه جدید برای دکمه کد هدیه کاربر
-# ==============================================================================
 async def gift_code_button_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """شروع مکالمه با زدن دکمه کد هدیه"""
     if not await check_user_preconditions(update, context): return ConversationHandler.END
-    
-    await update.message.reply_text(
-        "🎁 لطفاً کد هدیه خود را وارد کنید.\n\nبرای لغو /cancel را بزنید.",
-        reply_markup=ReplyKeyboardRemove() # حذف موقت کیبورد اصلی برای جلوگیری از خطا
-    )
-    return AWAITING_GIFT_CODE_INPUT
-
+    await update.message.reply_text("🎁 لطفاً کد هدیه خود را وارد کنید.\n\nبرای لغو /cancel را بزنید.", reply_markup=ReplyKeyboardRemove()); return AWAITING_GIFT_CODE_INPUT
 async def process_gift_code_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """پردازش کد هدیه ارسال شده توسط کاربر"""
     if not await check_user_preconditions(update, context): return ConversationHandler.END
-
-    user = update.effective_user
-    code = update.message.text
-    
-    # استفاده از تابع جدید دیتابیس
-    status, points_value = database.redeem_gift_code(user.id, code)
-
-    reply_message = ""
-    if status == "success":
-        db_user = database.get_or_create_user(user.id, user.first_name)
-        reply_message = f"✅ تبریک! کد با موفقیت استفاده شد و {points_value} امتیاز دریافت کردید.\nموجودی جدید: {db_user['points']} امتیاز"
-    elif status == "already_used":
-        reply_message = "❌ شما قبلاً از این کد هدیه استفاده کرده‌اید."
-    elif status == "limit_reached":
-        reply_message = "❌ متاسفانه ظرفیت استفاده از این کد هدیه به پایان رسیده است."
-    elif status == "not_found":
-        reply_message = "❌ کد هدیه وارد شده نامعتبر است."
-    else: # "error"
-        reply_message = "❌ خطایی در سیستم رخ داد. لطفاً با پشتیبانی تماس بگیرید."
-
-    # نمایش مجدد کیبورد اصلی
-    await update.message.reply_text(reply_message, reply_markup=get_main_reply_keyboard())
-    return ConversationHandler.END
+    user = update.effective_user; code = update.message.text; status, points_value = database.redeem_gift_code(user.id, code); reply_message = ""
+    if status == "success": db_user = database.get_or_create_user(user.id, user.first_name); reply_message = f"✅ تبریک! کد با موفقیت استفاده شد و {points_value} امتیاز دریافت کردید.\nموجودی جدید: {db_user['points']} امتیاز"
+    elif status == "already_used": reply_message = "❌ شما قبلاً از این کد هدیه استفاده کرده‌اید."
+    elif status == "limit_reached": reply_message = "❌ متاسفانه ظرفیت استفاده از این کد هدیه به پایان رسیده است."
+    elif status == "not_found": reply_message = "❌ کد هدیه وارد شده نامعتبر است."
+    else: reply_message = "❌ خطایی در سیستم رخ داد. لطفاً با پشتیبانی تماس بگیرید."
+    await update.message.reply_text(reply_message, reply_markup=get_main_reply_keyboard()); return ConversationHandler.END
 
 # ==============================================================================
 # کنترلرهای پنل ادمین
 # ==============================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != config.ADMIN_ID: return
-    
-    keyboard = [
-        [InlineKeyboardButton("پنل کد هدیه 🎁", callback_data='gift_code_panel')],
-        [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user'), InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')],
-        [InlineKeyboardButton("مدیریت وضعیت سرویس‌ها 🔧", callback_data='admin_manage_services')],
-        [InlineKeyboardButton("تاریخچه انتقالات 📜", callback_data='admin_transfer_history_page_1')],
-        [InlineKeyboardButton("لیست کاربران 👥", callback_data='list_users_page_1')],
-        [InlineKeyboardButton("تغییر وضعیت ربات ⚙️", callback_data='toggle_bot_status')],
-    ]
+    keyboard = [[InlineKeyboardButton("پنل کد هدیه 🎁", callback_data='gift_code_panel')], [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user'), InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')], [InlineKeyboardButton("مدیریت وضعیت سرویس‌ها 🔧", callback_data='admin_manage_services')], [InlineKeyboardButton("تاریخچه انتقالات 📜", callback_data='admin_transfer_history_page_1')], [InlineKeyboardButton("لیست کاربران 👥", callback_data='list_users_page_1')], [InlineKeyboardButton("تغییر وضعیت ربات ⚙️", callback_data='toggle_bot_status')]]
     text = "به پنل مدیریت خوش آمدید."
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def toggle_bot_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     is_on = database.get_setting('bot_status', 'true') == 'true'; new_status = 'false' if is_on else 'true'
     database.set_setting('bot_status', new_status)
     await query.answer(f"وضعیت ربات به {'روشن' if new_status == 'true' else 'خاموش'} تغییر کرد.")
-    await admin_panel(update, context) # Refresh panel to show updated status indirectly or just confirm
-
-async def toggle_secondary_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    is_enabled = database.get_setting('secondary_error_enabled', 'false') == 'true'; new_status = 'false' if is_enabled else 'true'
-    database.set_setting('secondary_error_enabled', new_status)
-    await admin_panel(update, context)
 
 async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID or not update.message.reply_to_message: return
     match = re.search(r"کاربر: .* \((\d+)\)", update.message.reply_to_message.text)
     if match:
         user_id_to_reply = int(match.group(1)); admin_text = update.message.text
-        try:
-            await context.bot.send_message(chat_id=user_id_to_reply, text=f"پاسخ از طرف پشتیبانی:\n\n{admin_text}")
-            await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
+        try: await context.bot.send_message(chat_id=user_id_to_reply, text=f"پاسخ از طرف پشتیبانی:\n\n{admin_text}"); await update.message.reply_text("✅ پیام شما برای کاربر ارسال شد.")
+        except Exception as e: await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
 
 async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    page = 1
+    query = update.callback_query; await query.answer(); page = 1
     if query.data and 'list_users_page_' in query.data: page = int(query.data.split('_')[-1])
-    limit = 10; offset = (page - 1) * limit
-    users = database.get_all_users(limit=limit, offset=offset)
+    limit = 10; offset = (page - 1) * limit; users = database.get_all_users(limit=limit, offset=offset)
     total_users = database.get_user_count(); total_pages = math.ceil(total_users / limit) if total_users > 0 else 1
     if not users: await query.edit_message_text("هیچ کاربری ثبت‌نام نکرده است."); return
     user_list = f"👥 **لیست کاربران (صفحه {page}/{total_pages})**:\n\n"
@@ -393,11 +301,9 @@ async def list_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(user_list, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    page = 1
+    query = update.callback_query; await query.answer(); page = 1
     if query.data and 'transfer_history_page_' in query.data: page = int(query.data.split('_')[-1])
-    limit = 10; offset = (page - 1) * limit
-    history = database.get_transfer_history(limit=limit, offset=offset)
+    limit = 10; offset = (page - 1) * limit; history = database.get_transfer_history(limit=limit, offset=offset)
     total_transfers = database.get_transfer_count(); total_pages = math.ceil(total_transfers / limit) if total_transfers > 0 else 1
     if not history: text = "هنوز هیچ انتقال امتیازی ثبت نشده است."
     else:
@@ -411,20 +317,16 @@ async def show_transfer_history(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def manage_services_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    keyboard = []
+    query = update.callback_query; await query.answer(); keyboard = []
     for service_key, service_name in USER_SERVICES.items():
-        status = database.get_setting(f'service_{service_key}_status', 'true') == 'true'
-        status_text = "فعال 🟢" if status else "غیرفعال 🔴"
+        status = database.get_setting(f'service_{service_key}_status', 'true') == 'true'; status_text = "فعال 🟢" if status else "غیرفعال 🔴"
         keyboard.append([InlineKeyboardButton(f"{service_name}: {status_text}", callback_data=f'toggle_service_{service_key}')])
     keyboard.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
     await query.edit_message_text("وضعیت هر سرویس را می‌توانید تغییر دهید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def toggle_service_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    service_key = query.data.replace('toggle_service_', ''); setting_key = f'service_{service_key}_status'
-    current_status = database.get_setting(setting_key, 'true') == 'true'
-    new_status = 'false' if current_status else 'true'
+    query = update.callback_query; await query.answer(); service_key = query.data.replace('toggle_service_', ''); setting_key = f'service_{service_key}_status'
+    current_status = database.get_setting(setting_key, 'true') == 'true'; new_status = 'false' if current_status else 'true'
     database.set_setting(setting_key, new_status); await manage_services_menu(update, context)
 
 async def manage_user_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -432,20 +334,37 @@ async def manage_user_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.edit_message_text("لطفاً آیدی عددی کاربری که می‌خواهید مدیریتش کنید را ارسال نمایید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]]))
     return AWAITING_USER_ID_MANAGE
 
+# --- تابع تغییر یافته ---
 async def show_user_manage_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """پروفایل کاربر در پنل ادمین با نمایش امتیاز و تعداد زیرمجموعه"""
     try: user_id_to_manage = int(update.message.text)
     except ValueError: await update.message.reply_text("آیدی نامعتبر است."); return AWAITING_USER_ID_MANAGE
+    
     user_info = database.get_or_create_user(user_id_to_manage, "Unknown")
-    if not user_info: await update.message.reply_text("کاربری با این آیدی یافت نشد."); return ConversationHandler.END
+    if not user_info:
+        await update.message.reply_text("کاربری با این آیدی یافت نشد.")
+        return ConversationHandler.END
+        
+    # گرفتن تعداد زیرمجموعه‌ها
+    referral_count = database.get_referral_count(user_id_to_manage)
     status = "🔴 مسدود" if user_info.get('is_banned') else "🟢 فعال"
-    profile_text = (f"👤 **پروفایل: {user_info['first_name']}**\n" f"🆔 **آیدی:** `{user_info['user_id']}`\n" f"⭐️ **امتیاز:** {user_info['points']}\n" f"🚦 **وضعیت:** {status}\n\n" f"🔗 **معرف:** `{user_info.get('referred_by') or 'ندارد'}`\n" f"🎁 **آخرین جایزه:** {user_info.get('last_daily_claim') or 'N/A'}\n" f"🔄 **آخرین انتقال:** {user_info.get('last_transfer_date') or 'N/A'}")
+    
+    profile_text = (
+        f"👤 **پروفایل: {user_info['first_name']}**\n"
+        f"🆔 **آیدی:** `{user_info['user_id']}`\n"
+        f"⭐️ **امتیاز:** {user_info['points']}\n"  # این خط از قبل وجود داشت
+        f"👥 **تعداد زیرمجموعه:** {referral_count} نفر\n" # خط جدید
+        f"🚦 **وضعیت:** {status}\n\n"
+        f"🔗 **معرف:** `{user_info.get('referred_by') or 'ندارد'}`\n"
+        f"🎁 **آخرین جایزه:** {user_info.get('last_daily_claim') or 'N/A'}\n"
+        f"🔄 **آخرین انتقال:** {user_info.get('last_transfer_date') or 'N/A'}"
+    )
     keyboard = [[InlineKeyboardButton("بن کردن 🚫", callback_data=f"ban_{user_id_to_manage}"), InlineKeyboardButton("آنبن کردن ✅", callback_data=f"unban_{user_id_to_manage}")], [InlineKeyboardButton("ارسال پیام 📨", callback_data=f"send_msg_{user_id_to_manage}")], [InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]]
     await update.message.reply_text(profile_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
     return ConversationHandler.END
 
 async def ask_for_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query; await query.answer()
-    user_id = int(query.data.split('_')[2])
+    query = update.callback_query; await query.answer(); user_id = int(query.data.split('_')[2])
     user_info = database.get_or_create_user(user_id, "Unknown")
     context.user_data['recipient_id_admin_msg'] = user_id
     await query.edit_message_text(f"پیام خود را برای کاربر «{user_info['first_name']}» بنویسید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("لغو", callback_data='back_to_admin_panel')]]))
@@ -456,11 +375,8 @@ async def send_message_from_admin(update: Update, context: ContextTypes.DEFAULT_
     try:
         await context.bot.send_message(chat_id=recipient_id, text=f"📨 **یک پیام از طرف مدیر برای شما:**\n\n{update.message.text}", parse_mode=ParseMode.MARKDOWN)
         await update.message.reply_text("✅ پیام شما با موفقیت برای کاربر ارسال شد.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ ارسال پیام با خطا مواجه شد: {e}")
-    context.user_data.clear()
-    await admin_panel(update, context)
-    return ConversationHandler.END
+    except Exception as e: await update.message.reply_text(f"❌ ارسال پیام با خطا مواجه شد: {e}")
+    context.user_data.clear(); await admin_panel(update, context); return ConversationHandler.END
     
 async def perform_ban_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); action, user_id = query.data.split('_'); user_id = int(user_id)
@@ -469,23 +385,18 @@ async def perform_ban_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_costs_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
-    costs = {k: database.get_setting(f'cost_{k}', '1') for k in SERVICE_NAME_MAP_FA.keys()}
-    keyboard_list = [[InlineKeyboardButton(f"{SERVICE_NAME_MAP_FA[k]} ({v} امتیاز)", callback_data=f'setcost_{k}')] for k, v in costs.items()]
-    keyboard_list.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
-    await query.edit_message_text("هزینه کدام بخش را می‌خواهید تغییر دهید؟", reply_markup=InlineKeyboardMarkup(keyboard_list))
+    costs = {k: database.get_setting(f'cost_{k}', '1') for k in SERVICE_NAME_MAP_FA.keys()}; keyboard_list = [[InlineKeyboardButton(f"{SERVICE_NAME_MAP_FA[k]} ({v} امتیاز)", callback_data=f'setcost_{k}')] for k, v in costs.items()]
+    keyboard_list.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]); await query.edit_message_text("هزینه کدام بخش را می‌خواهید تغییر دهید؟", reply_markup=InlineKeyboardMarkup(keyboard_list))
 
 async def ask_for_new_cost(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query; await query.answer()
-    context.user_data['service_to_set_cost'] = query.data.split('_')[1]
+    query = update.callback_query; await query.answer(); context.user_data['service_to_set_cost'] = query.data.split('_')[1]
     service_name_fa = SERVICE_NAME_MAP_FA.get(context.user_data['service_to_set_cost'], "این سرویس")
-    await query.edit_message_text(f"لطفاً هزینه جدید را برای «{service_name_fa}» به صورت یک عدد ارسال کنید.")
-    return AWAITING_COST_AMOUNT
+    await query.edit_message_text(f"لطفاً هزینه جدید را برای «{service_name_fa}» به صورت یک عدد ارسال کنید."); return AWAITING_COST_AMOUNT
 
 async def set_new_cost(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         new_cost = int(update.message.text); service_key = context.user_data.get('service_to_set_cost')
-        database.set_setting(f"cost_{service_key}", str(new_cost))
-        await update.message.reply_text(f"هزینه با موفقیت به {new_cost} تغییر یافت.", reply_markup=get_main_reply_keyboard())
+        database.set_setting(f"cost_{service_key}", str(new_cost)); await update.message.reply_text(f"هزینه با موفقیت به {new_cost} تغییر یافت.", reply_markup=get_main_reply_keyboard())
     except (ValueError, TypeError): await update.message.reply_text("مقدار نامعتبر است.", reply_markup=get_main_reply_keyboard())
     context.user_data.clear(); return ConversationHandler.END
     
@@ -499,67 +410,59 @@ async def remove_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try: user_id = int(context.args[0]); amount = int(context.args[1]); database.update_points(user_id, -amount); await update.message.reply_text(f"{amount} امتیاز از کاربر {user_id} کسر شد.")
     except: await update.message.reply_text("استفاده: /removepoints <USER_ID> <AMOUNT>")
 
-# --- توابع پنل کد هدیه ---
 async def gift_code_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("افزودن کد جدید ➕", callback_data='add_gift_code_entry')],
-        [InlineKeyboardButton("لیست و حذف کدها 📋", callback_data='list_gift_codes')],
-        [InlineKeyboardButton("بازگشت به پنل اصلی ↩️", callback_data='back_to_admin_panel')]
-    ]
+    query = update.callback_query; await query.answer()
+    keyboard = [[InlineKeyboardButton("افزودن کد جدید ➕", callback_data='add_gift_code_entry')], [InlineKeyboardButton("لیست کدها 📋", callback_data='list_gift_codes')], [InlineKeyboardButton("بازگشت به پنل اصلی ↩️", callback_data='back_to_admin_panel')]]
     text = "🎁 **پنل مدیریت کدهای هدیه** 🎁"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def add_gift_code_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    text = "لطفاً اطلاعات کد جدید را به این صورت در یک پیام ارسال کنید:\n\n`CODE POINTS USES`\n\n**مثال:**\n`welcome1404 10 50`\n(کدی به نام `welcome1404` با ارزش ۱۰ امتیاز و ظرفیت استفاده برای ۵۰ نفر)\n\nبرای لغو /cancel را بزنید."
+    query = update.callback_query; await query.answer()
+    text = "لطفاً اطلاعات کد جدید را به این صورت در یک پیام ارسال کنید:\n\n`CODE POINTS USES`\n\n**مثال:**\n`welcome1404 10 50`\n\nبرای لغو /cancel را بزنید."
     await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
     return AWAITING_GIFT_CODE_DETAILS
 
 async def process_new_gift_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    try:
-        code, points_str, limit_str = update.message.text.split()
-        points = int(points_str)
-        usage_limit = int(limit_str)
-    except (ValueError, IndexError):
-        await update.message.reply_text("❌ فرمت ورودی اشتباه است. لطفاً به شکل `CODE POINTS USES` ارسال کنید.\nمثال: `newyear 5 100`", reply_markup=get_main_reply_keyboard())
-        return ConversationHandler.END
-    
-    if database.add_gift_code(code, points, usage_limit):
-        await update.message.reply_text(f"✅ کد هدیه `{code}` با ارزش {points} امتیاز و ظرفیت {usage_limit} نفر با موفقیت ساخته شد.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_reply_keyboard())
-    else:
-        await update.message.reply_text(f"❌ کد هدیه `{code}` از قبل در سیستم وجود دارد.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_reply_keyboard())
-    return ConversationHandler.END
+    try: code, points_str, limit_str = update.message.text.split(); points = int(points_str); usage_limit = int(limit_str)
+    except (ValueError, IndexError): await update.message.reply_text("❌ فرمت ورودی اشتباه است.\nدوباره تلاش کنید یا /cancel را بزنید."); return AWAITING_GIFT_CODE_DETAILS
+    if database.add_gift_code(code, points, usage_limit): await update.message.reply_text(f"✅ کد هدیه `{code}` با موفقیت ساخته شد.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_reply_keyboard())
+    else: await update.message.reply_text(f"❌ کد هدیه `{code}` از قبل موجود است.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_reply_keyboard())
+    context.user_data.clear(); return ConversationHandler.END
     
 async def list_gift_codes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    all_codes = database.get_all_gift_codes()
+    query = update.callback_query; await query.answer(); all_codes = database.get_all_gift_codes()
     if not all_codes:
-        text = "هیچ کد هدیه‌ای در سیستم ثبت نشده است."
-        keyboard = [[InlineKeyboardButton("بازگشت ↩️", callback_data='gift_code_panel')]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return
-    text = "📋 **لیست کدهای هدیه** 📋\n\n"
-    keyboard = []
+        text = "هیچ کد هدیه‌ای ثبت نشده است."; keyboard = [[InlineKeyboardButton("بازگشت ↩️", callback_data='gift_code_panel')]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard)); return
+    text = "📋 **لیست کدهای هدیه** 📋\n\n"; keyboard = []
     for code_data in all_codes:
         text += (f"🔹 **کد:** `{code_data['code']}`\n"
                  f"   - **امتیاز:** {code_data['points']} ⭐\n"
-                 f"   - **استفاده شده:** {code_data['usage_count']} از {code_data['usage_limit']} نفر\n\n")
-        keyboard.append([InlineKeyboardButton(f"حذف کد: {code_data['code']} 🗑️", callback_data=f"delete_gift_{code_data['code']}")])
-    keyboard.append([InlineKeyboardButton("بازگشت ↩️", callback_data='gift_code_panel')])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+                 f"   - **استفاده شده:** {code_data['usage_count']} از {code_data['usage_limit']}\n\n")
+        button_row = [InlineKeyboardButton(f"مشاهده کاربران 👥", callback_data=f"view_users_gift_{code_data['code']}_page_1"), InlineKeyboardButton(f"حذف 🗑️", callback_data=f"delete_gift_{code_data['code']}")]
+        keyboard.append(button_row)
+    keyboard.append([InlineKeyboardButton("بازگشت ↩️", callback_data='gift_code_panel')]); await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def delete_gift_code_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    code_to_delete = query.data.split('_')[-1]
-    if database.delete_gift_code(code_to_delete):
-        await query.answer(f"✅ کد {code_to_delete} حذف شد.", show_alert=False)
-    else:
-        await query.answer(f"❌ خطا در حذف کد {code_to_delete}.", show_alert=True)
+    query = update.callback_query; code_to_delete = query.data.split('_')[-1]
+    if database.delete_gift_code(code_to_delete): await query.answer(f"✅ کد {code_to_delete} حذف شد.", show_alert=False)
+    else: await query.answer(f"❌ خطا در حذف کد {code_to_delete}.", show_alert=True)
     await list_gift_codes(update, context)
+
+async def show_gift_code_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer(); parts = query.data.split('_'); code = parts[3]; page = int(parts[5]); users = database.get_users_of_gift_code(code)
+    if not users:
+        text = f"هنوز هیچ کاربری از کد `{code}` استفاده نکرده است."; keyboard = [[InlineKeyboardButton(" بازگشت ↩️", callback_data='list_gift_codes')]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN); return
+    limit = 10; offset = (page - 1) * limit; total_users = len(users); total_pages = math.ceil(total_users / limit); paginated_users = users[offset : offset + limit]
+    text = f"👥 **کاربران کد `{code}` (صفحه {page}/{total_pages})**\n\n"
+    for user in paginated_users: text += f"👤 نام: {user['first_name']}\n   - آیدی: `{user['user_id']}`\n"
+    keyboard_rows = []; pagination_row = []
+    if page > 1: pagination_row.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"view_users_gift_{code}_page_{page-1}"))
+    pagination_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+    if page < total_pages: pagination_row.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"view_users_gift_{code}_page_{page+1}"))
+    if pagination_row: keyboard_rows.append(pagination_row)
+    keyboard_rows.append([InlineKeyboardButton(" بازگشت به لیست کدها ↩️", callback_data='list_gift_codes')]); await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard_rows), parse_mode=ParseMode.MARKDOWN)
 
 # ==============================================================================
 # تابع اصلی و راه‌اندازی ربات
@@ -571,10 +474,7 @@ def main() -> None:
     if not database.get_setting('secondary_error_message'): database.set_setting('secondary_error_message', "خطا❌در اتصال به سرور مشکلی پیش امد. با ادمین تماس بگیرید @likeadminx7")
 
     application = Application.builder().token(config.BOT_TOKEN).build()
-
     admin_base_conv_fallbacks = [CommandHandler('cancel', cancel_conversation), CallbackQueryHandler(admin_panel, pattern='^back_to_admin_panel$')]
-
-    # --- تعریف مکالمات ---
     gift_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex('^کد هدیه 🎁$'), gift_code_button_entry)], states={AWAITING_GIFT_CODE_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_gift_code_input)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)])
     service_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex(f"^({'|'.join(SERVICE_MAP.keys())})$"), service_entry_point)], states={AWAITING_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_id_and_process)], AWAITING_STARS_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_stars_details_and_process)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     transfer_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex('^انتقال امتیاز 🔄$'), transfer_entry)], states={AWAITING_RECIPIENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_recipient_id)], AWAITING_TRANSFER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_transfer)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
@@ -582,18 +482,21 @@ def main() -> None:
     manage_user_conv = ConversationHandler(entry_points=[CallbackQueryHandler(manage_user_entry, pattern='^admin_manage_user$'), CallbackQueryHandler(ask_for_admin_message, pattern=r'^send_msg_')], states={AWAITING_USER_ID_MANAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_user_manage_options)], AWAITING_ADMIN_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_message_from_admin)]}, fallbacks=admin_base_conv_fallbacks, per_user=True)
     set_cost_conv = ConversationHandler(entry_points=[CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')], states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]}, fallbacks=admin_base_conv_fallbacks, per_user=True)
 
-    # --- ثبت Handler ها ---
     application.add_handler(CommandHandler("start", start)); application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(gift_conv); application.add_handler(service_conv); application.add_handler(transfer_conv); application.add_handler(add_gift_conv); application.add_handler(manage_user_conv); application.add_handler(set_cost_conv)
 
     application.add_handler(MessageHandler(filters.Regex('^حساب کاربری👤$'), profile_handler)); application.add_handler(MessageHandler(filters.Regex('^امتیاز روزانه🎁$'), daily_bonus_handler)); application.add_handler(MessageHandler(filters.Regex('^پشتیبانی📞$'), support_handler)); application.add_handler(MessageHandler(filters.Regex('^🏆 نفرات برتر$'), show_top_users)); application.add_handler(MessageHandler(filters.REPLY & filters.User(config.ADMIN_ID), admin_reply_to_user))
     
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^back_to_admin_panel$'))
-    application.add_handler(CallbackQueryHandler(toggle_bot_status_callback, pattern='^toggle_bot_status$')); application.add_handler(CallbackQueryHandler(toggle_secondary_error_callback, pattern='^toggle_secondary_error$')); application.add_handler(CallbackQueryHandler(show_transfer_history, pattern=r'^admin_transfer_history_page_')); application.add_handler(CallbackQueryHandler(list_users_callback, pattern=r'^list_users_page_')); application.add_handler(CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')); application.add_handler(CallbackQueryHandler(perform_ban_unban, pattern=r'^(ban|unban)_')); application.add_handler(CallbackQueryHandler(manage_services_menu, pattern='^admin_manage_services$')); application.add_handler(CallbackQueryHandler(toggle_service_status, pattern=r'^toggle_service_'))
+    application.add_handler(CallbackQueryHandler(toggle_bot_status_callback, pattern='^toggle_bot_status$'))
+    application.add_handler(CallbackQueryHandler(show_transfer_history, pattern=r'^admin_transfer_history_page_')); application.add_handler(CallbackQueryHandler(list_users_callback, pattern=r'^list_users_page_')); application.add_handler(CallbackQueryHandler(perform_ban_unban, pattern=r'^(ban|unban)_')); application.add_handler(CallbackQueryHandler(manage_services_menu, pattern='^admin_manage_services$')); application.add_handler(CallbackQueryHandler(toggle_service_status, pattern=r'^toggle_service_'))
     
     application.add_handler(CallbackQueryHandler(gift_code_panel, pattern='^gift_code_panel$'))
     application.add_handler(CallbackQueryHandler(list_gift_codes, pattern='^list_gift_codes$'))
     application.add_handler(CallbackQueryHandler(delete_gift_code_callback, pattern=r'^delete_gift_'))
+    application.add_handler(CallbackQueryHandler(show_gift_code_users, pattern=r'^view_users_gift_'))
+    
+    application.add_handler(CallbackQueryHandler(lambda u,c: u.callback_query.answer(), pattern='^noop$'))
 
     application.add_handler(CommandHandler("addpoints", add_points)); application.add_handler(CommandHandler("removepoints", remove_points))
     
