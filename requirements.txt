@@ -1,1 +1,2 @@
 python-telegram-bot[ext]>=20.0
+psycopg2-binary
