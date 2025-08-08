@@ -119,8 +119,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             referrer_id = int(context.args[0])
             if referrer_id != user.id:
                 database.get_or_create_user(user.id, user.first_name, referred_by=referrer_id)
-                database.update_points(referrer_id, 1) # امتیاز رفرال
-                await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و ۱ امتیاز دریافت کردید!")
+                database.update_points(referrer_id, 2) # امتیاز رفرال
+                await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و 2 امتیاز دریافت کردید!")
         except (ValueError, IndexError):
             database.get_or_create_user(user.id, user.first_name)
     elif not user_already_exists:
@@ -158,7 +158,7 @@ async def daily_bonus_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             hours, rem = divmod(remaining_time.seconds, 3600); minutes, _ = divmod(rem, 60)
             await update.message.reply_text(f"شما قبلا امتیاز روزانه خود را دریافت کرده‌اید.\nزمان باقی‌مانده: {hours} ساعت و {minutes} دقیقه")
             return
-    bonus_points = random.randint(1, 5)
+    bonus_points = random.randint(1, 3)
     database.update_points(user.id, bonus_points); database.set_daily_claim(user.id)
     await update.message.reply_text(f"🎁 تبریک! شما {bonus_points} امتیاز روزانه دریافت کردید.\nموجودی فعلی: {db_user['points'] + bonus_points} امتیاز")
 
