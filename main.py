@@ -1,4 +1,4 @@
-# main.py (نسخه کامل و نهایی با اضافه شدن مدیریت خطای ثانویه در پنل ادمین)
+# main.py (نسخه ویرایش شده با هزینه‌های ثابت در کد)
 
 import logging
 import os
@@ -28,7 +28,7 @@ AWAITING_RECIPIENT_ID, AWAITING_TRANSFER_AMOUNT = range(4, 6)
 AWAITING_ADMIN_MESSAGE = 7
 AWAITING_GIFT_CODE_DETAILS = 8
 AWAITING_GIFT_CODE_INPUT = 9
-AWAITING_SECONDARY_ERROR_MESSAGE = 10  # استیت جدید برای پیام خطای ثانویه
+AWAITING_SECONDARY_ERROR_MESSAGE = 10
 
 # دیکشنری سرویس‌ها
 SERVICE_MAP = {
@@ -41,6 +41,19 @@ USER_SERVICES = {
     'free_stars': 'استارز رایگان⭐', 'teddy_gift': 'گیفت تدی🗿',
     'daily_bonus': 'امتیاز روزانه🎁', 'transfer_points': 'انتقال امتیاز 🔄'
 }
+
+# ==============================================================================
+#                     ✅ بخش جدید تنظیمات هزینه‌ها ✅
+# ==============================================================================
+# از این به بعد، برای تغییر هزینه هر سرویس، فقط عدد آن را در اینجا ویرایش کنید
+SERVICE_COSTS = {
+    'free_like': 2,
+    'account_info': 1,
+    'free_stars': 5,
+    'teddy_gift': 35
+}
+# ==============================================================================
+
 
 # ==============================================================================
 # توابع کمکی و کیبورد
@@ -106,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             referrer_id = int(context.args[0])
             if referrer_id != user.id:
                 database.get_or_create_user(user.id, user.first_name, referred_by=referrer_id)
-                database.update_points(referrer_id, 1)
+                database.update_points(referrer_id, 1) # امتیاز رفرال
                 await context.bot.send_message(chat_id=referrer_id, text="یک کاربر جدید از طریق لینک شما وارد ربات شد و ۱ امتیاز دریافت کردید!")
         except (ValueError, IndexError):
             database.get_or_create_user(user.id, user.first_name)
@@ -189,7 +202,10 @@ async def service_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("❌ این سرویس در حال حاضر توسط مدیر غیرفعال شده است.")
         return ConversationHandler.END
     if not await check_user_preconditions(update, context): return ConversationHandler.END
-    cost = int(database.get_setting(f'cost_{service_key}', '1'))
+    
+    # ✅ تغییر اصلی اینجاست: هزینه از دیکشنری بالای کد خوانده می‌شود
+    cost = SERVICE_COSTS.get(service_key, 1)
+    
     user = update.effective_user
     db_user = database.get_or_create_user(user.id, user.first_name)
     if db_user['points'] < cost:
@@ -215,7 +231,7 @@ async def receive_id_and_process(update: Update, context: ContextTypes.DEFAULT_T
         if not details.isdigit():
             await update.message.reply_text("❌ ورودی نامعتبر است. لطفاً فقط عدد وارد کنید."); return AWAITING_ID
         if not (5 <= len(details) <= 14):
-            await update.message.reply_text("❌ تعداد ارقام باید بین ۵ تا ۱۴ باشد."); return AWAITING_ID
+            await update.message.reply_text("❌ ایدی اشتباه است"); return AWAITING_ID
     service_display_name = SERVICE_NAME_MAP_FA.get(service_key, "سرویس نامشخص")
     forward_text = f"درخواست جدید:\n کاربر: {user.first_name} ({user.id})\n نوع: {service_display_name}\n اطلاعات ارسالی: {details}"
     await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
@@ -234,6 +250,10 @@ async def receive_stars_details_and_process(update: Update, context: ContextType
     await context.bot.send_message(chat_id=config.ADMIN_ID, text=forward_text)
     await update.message.reply_text("✅ سفارش شما ثبت و در صف بررسی قرار گرفت.", reply_markup=get_main_reply_keyboard())
     context.user_data.clear(); return ConversationHandler.END
+
+# ... (تمام توابع دیگر تا بخش کنترلرهای پنل ادمین بدون تغییر باقی می‌مانند) ...
+# ... (transfer_entry, receive_recipient_id, process_transfer, etc.) ...
+# ... (gift_code_button_entry, process_gift_code_input, etc.) ...
 
 # ==============================================================================
 # گفتگوی انتقال امتیاز
@@ -333,18 +353,17 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if update.effective_user.id != config.ADMIN_ID: return
     
-    # دریافت وضعیت خطای ثانویه برای نمایش
     secondary_error_status = "🟢" if database.get_setting('secondary_error_enabled', 'false') == 'true' else "🔴"
     
     keyboard = [
         [InlineKeyboardButton("پنل کد هدیه 🎁", callback_data='gift_code_panel')],
-        [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user'), 
-         InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')],
+        [InlineKeyboardButton("مدیریت کاربر 👤", callback_data='admin_manage_user')],
+        # [InlineKeyboardButton("تنظیم هزینه‌ها ⚙️", callback_data='admin_set_costs')], # این دکمه دیگر لازم نیست
         [InlineKeyboardButton("مدیریت وضعیت سرویس‌ها 🔧", callback_data='admin_manage_services')],
         [InlineKeyboardButton("تاریخچه انتقالات 📜", callback_data='admin_transfer_history_page_1')],
         [InlineKeyboardButton("لیست کاربران 👥", callback_data='list_users_page_1')],
         [InlineKeyboardButton("تغییر وضعیت ربات ⚙️", callback_data='toggle_bot_status')],
-        [InlineKeyboardButton(f"خطای ثانویه {secondary_error_status}", callback_data='secondary_error_panel')],  # دکمه جدید
+        [InlineKeyboardButton(f"خطای ثانویه {secondary_error_status}", callback_data='secondary_error_panel')],
     ]
     text = "به پنل مدیریت خوش آمدید."
     if update.callback_query:
@@ -381,7 +400,6 @@ async def remove_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("استفاده: /removepoints <USER_ID> <AMOUNT>")
 
 async def secondary_error_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پنل مدیریت خطای ثانویه"""
     query = update.callback_query
     await query.answer()
     
@@ -403,7 +421,6 @@ async def secondary_error_panel(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def toggle_secondary_error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """تغییر وضعیت خطای ثانویه"""
     query = update.callback_query
     await query.answer()
     
@@ -415,7 +432,6 @@ async def toggle_secondary_error(update: Update, context: ContextTypes.DEFAULT_T
     await secondary_error_panel(update, context)
 
 async def change_secondary_error_message_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """ورود به حالت تغییر پیام خطای ثانویه"""
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
@@ -425,7 +441,6 @@ async def change_secondary_error_message_entry(update: Update, context: ContextT
     return AWAITING_SECONDARY_ERROR_MESSAGE
 
 async def process_new_error_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """پردازش پیام جدید خطای ثانویه"""
     new_message = update.message.text
     database.set_setting('secondary_error_message', new_message)
     await update.message.reply_text(
@@ -556,26 +571,10 @@ async def perform_ban_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         database.set_ban_status(user_id, False)
         await query.edit_message_text(f"کاربر {user_id} از مسدودیت خارج شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')]]))
 
-async def set_costs_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    costs = {k: database.get_setting(f'cost_{k}', '1') for k in SERVICE_NAME_MAP_FA.keys()}
-    keyboard_list = [[InlineKeyboardButton(f"{SERVICE_NAME_MAP_FA[k]} ({v} امتیاز)", callback_data=f'setcost_{k}')] for k, v in costs.items()]
-    keyboard_list.append([InlineKeyboardButton(" بازگشت ↩️", callback_data='back_to_admin_panel')])
-    await query.edit_message_text("هزینه کدام بخش را می‌خواهید تغییر دهید؟", reply_markup=InlineKeyboardMarkup(keyboard_list))
-
-async def ask_for_new_cost(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query; await query.answer(); context.user_data['service_to_set_cost'] = query.data.split('_')[1]
-    service_name_fa = SERVICE_NAME_MAP_FA.get(context.user_data['service_to_set_cost'], "این سرویس")
-    await query.edit_message_text(f"لطفاً هزینه جدید را برای «{service_name_fa}» به صورت یک عدد ارسال کنید."); return AWAITING_COST_AMOUNT
-
-async def set_new_cost(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    try:
-        new_cost = int(update.message.text); service_key = context.user_data.get('service_to_set_cost')
-        database.set_setting(f"cost_{service_key}", str(new_cost))
-        await update.message.reply_text(f"هزینه با موفقیت به {new_cost} تغییر یافت.", reply_markup=get_main_reply_keyboard())
-    except (ValueError, TypeError): 
-        await update.message.reply_text("مقدار نامعتبر است.", reply_markup=get_main_reply_keyboard())
-    context.user_data.clear(); return ConversationHandler.END
+# توابع مربوط به تنظیم هزینه از پنل ادمین دیگر لازم نیستند، چون هزینه‌ها در کد ثابت شده‌اند
+# async def set_costs_entry ...
+# async def ask_for_new_cost ...
+# async def set_new_cost ...
     
 async def gift_code_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -659,7 +658,6 @@ def main() -> None:
     admin_base_conv_fallbacks = [CommandHandler('cancel', cancel_conversation), 
                                 CallbackQueryHandler(admin_panel, pattern='^back_to_admin_panel$')]
     
-    # ConversationHandler برای خطای ثانویه
     secondary_error_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(change_secondary_error_message_entry, pattern='^change_secondary_error_message$')],
         states={
@@ -709,12 +707,14 @@ def main() -> None:
         fallbacks=admin_base_conv_fallbacks,
         per_user=True
     )
-    set_cost_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')],
-        states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]},
-        fallbacks=admin_base_conv_fallbacks,
-        per_user=True
-    )
+    
+    # ✅ این بخش دیگر لازم نیست و برای جلوگیری از خطا حذف یا کامنت می‌شود
+    # set_cost_conv = ConversationHandler(
+    #     entry_points=[CallbackQueryHandler(set_costs_entry, pattern='^admin_set_costs$')],
+    #     states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]},
+    #     fallbacks=admin_base_conv_fallbacks,
+    #     per_user=True
+    # )
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_panel))
@@ -723,8 +723,8 @@ def main() -> None:
     application.add_handler(transfer_conv)
     application.add_handler(add_gift_conv)
     application.add_handler(manage_user_conv)
-    application.add_handler(set_cost_conv)
-    application.add_handler(secondary_error_conv)  # اضافه کردن هندلر خطای ثانویه
+    # application.add_handler(set_cost_conv) # ✅ این خط هم غیرفعال می‌شود
+    application.add_handler(secondary_error_conv)
 
     application.add_handler(MessageHandler(filters.Regex('^حساب کاربری👤$'), profile_handler))
     application.add_handler(MessageHandler(filters.Regex('^امتیاز روزانه🎁$'), daily_bonus_handler))
@@ -743,8 +743,8 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(list_gift_codes, pattern='^list_gift_codes$'))
     application.add_handler(CallbackQueryHandler(delete_gift_code_callback, pattern=r'^delete_gift_'))
     application.add_handler(CallbackQueryHandler(show_gift_code_users, pattern=r'^view_users_gift_'))
-    application.add_handler(CallbackQueryHandler(secondary_error_panel, pattern='^secondary_error_panel$'))  # هندلر جدید
-    application.add_handler(CallbackQueryHandler(toggle_secondary_error, pattern='^toggle_secondary_error$'))  # هندلر جدید
+    application.add_handler(CallbackQueryHandler(secondary_error_panel, pattern='^secondary_error_panel$'))
+    application.add_handler(CallbackQueryHandler(toggle_secondary_error, pattern='^toggle_secondary_error$'))
     
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern='^noop$'))
 
@@ -755,5 +755,4 @@ def main() -> None:
     application.run_polling()
 
 if __name__ == "__main__":
-
     main()
