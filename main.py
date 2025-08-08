@@ -1,4 +1,4 @@
-# main.py (نسخه کامل و نهایی)
+# main.py (نسخه کامل و نهایی برای PythonAnywhere)
 
 import logging
 import os
@@ -371,11 +371,13 @@ def main() -> None:
 
     application = Application.builder().token(config.BOT_TOKEN).build()
 
+    # تعریف گفتگوها
     service_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex(f"^({'|'.join(SERVICE_MAP.keys())})$"), service_entry_point)], states={AWAITING_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_id_and_process)], AWAITING_STARS_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_stars_details_and_process)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     transfer_conv = ConversationHandler(entry_points=[MessageHandler(filters.Regex('^انتقال امتیاز 🔄$'), transfer_entry)], states={AWAITING_RECIPIENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_recipient_id)], AWAITING_TRANSFER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_transfer)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     manage_user_conv = ConversationHandler(entry_points=[CallbackQueryHandler(manage_user_entry, pattern='^admin_manage_user$')], states={AWAITING_USER_ID_MANAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_user_manage_options)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
     set_cost_conv = ConversationHandler(entry_points=[CallbackQueryHandler(ask_for_new_cost, pattern='^setcost_.*$')], states={AWAITING_COST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_new_cost)]}, fallbacks=[CommandHandler('cancel', cancel_conversation)], per_user=True)
 
+    # ثبت کنترلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(service_conv)
@@ -400,9 +402,9 @@ def main() -> None:
     application.add_handler(CommandHandler("addpoints", add_points))
     application.add_handler(CommandHandler("removepoints", remove_points))
 
-    port = int(os.environ.get('PORT', 8443))
-    logger.info(f"Starting webhook bot on port {port}")
-    application.run_webhook(listen="0.0.0.0", port=port, url_path=config.BOT_TOKEN, webhook_url=f"{config.WEBHOOK_URL}/{config.BOT_TOKEN}")
+    # راه‌اندازی ربات با پولینگ برای PythonAnywhere
+    logger.info("Starting bot with polling...")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
