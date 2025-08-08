@@ -1,7 +1,7 @@
 # config.py
 
 # توکن ربات که از BotFather دریافت می‌کنید
-BOT_TOKEN = "7882319394:AAG-TFTzkcEccTbR3sEIOJ0I9StWJMhNeHc"
+BOT_TOKEN = "7882319394:AAGt27ZZTl3PlHV94bUqMMf7Wpeyrle0N9M"
 
 # آیدی عددی اکانت ادمین (برای پیدا کردن به ربات @userinfobot پیام دهید)
 ADMIN_ID = 8066854428  # آیدی عددی خودتان را اینجا قرار دهید
