@@ -1,4 +1,4 @@
-# database.py (نسخه کامل و نهایی برای PythonAnywhere با SQLite)
+# database.py (نسخه کامل و نهایی برای SQLite)
 
 import sqlite3
 from datetime import datetime, date
@@ -44,7 +44,7 @@ def init_db():
     ''')
     conn.commit()
 
-    # افزودن هزینه‌ها و وضعیت‌های پیش‌فرض سرویس‌ها در صورتی که وجود نداشته باشند
+    # افزودن هزینه‌ها و وضعیت‌های پیش‌فرض سرویس‌ها
     default_settings = {
         'cost_free_like': '1', 'cost_account_info': '1', 'cost_free_stars': '3',
         'cost_teddy_gift': '35',
@@ -61,6 +61,15 @@ def init_db():
     conn.commit()
     conn.close()
 
+def user_exists(user_id):
+    """فقط چک می‌کند که آیا کاربری با این آیدی وجود دارد یا خیر."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    exists = cursor.fetchone() is not None
+    conn.close()
+    return exists
+
 def get_setting(key: str, default: str = None) -> str:
     """خواندن یک مقدار از جدول تنظیمات."""
     conn = sqlite3.connect(DB_NAME)
@@ -74,11 +83,9 @@ def set_setting(key: str, value: str):
     """ذخیره یا به‌روزرسانی یک مقدار در جدول تنظیمات."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
 
 def get_or_create_user(user_id, first_name, referred_by=None):
     """گرفتن اطلاعات کاربر یا ساخت کاربر جدید در صورت عدم وجود."""
@@ -102,11 +109,9 @@ def update_points(user_id, amount):
     """افزایش یا کاهش امتیاز یک کاربر."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    try:
-        cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
 
 def set_daily_claim(user_id):
     """ثبت تاریخ دریافت جایزه روزانه."""
@@ -122,36 +127,30 @@ def set_transfer_date(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     today_str = date.today().isoformat()
-    try:
-        cursor.execute("UPDATE users SET last_transfer_date = ? WHERE user_id = ?", (today_str, user_id))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute("UPDATE users SET last_transfer_date = ? WHERE user_id = ?", (today_str, user_id))
+    conn.commit()
+    conn.close()
 
 def delete_user(user_id):
     """حذف یک کاربر از دیتابیس."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
 def log_transfer(sender_id, sender_name, recipient_id, recipient_name, amount_sent, tax, amount_received):
     """ثبت یک رکورد در تاریخچه انتقالات."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        cursor.execute('''
-            INSERT INTO transfer_history 
-            (sender_id, sender_name, recipient_id, recipient_name, amount_sent, tax_amount, amount_received, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (sender_id, sender_name, recipient_id, recipient_name, amount_sent, tax, amount_received, timestamp))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute('''
+        INSERT INTO transfer_history 
+        (sender_id, sender_name, recipient_id, recipient_name, amount_sent, tax_amount, amount_received, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (sender_id, sender_name, recipient_id, recipient_name, amount_sent, tax, amount_received, timestamp))
+    conn.commit()
+    conn.close()
 
 def get_transfer_history(limit: int = 20):
     """گرفتن تاریخچه انتقالات برای نمایش به ادمین."""
@@ -185,11 +184,9 @@ def set_ban_status(user_id, status: bool):
     """تنظیم وضعیت مسدود بودن کاربر."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    try:
-        cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (int(status), user_id))
-        conn.commit()
-    finally:
-        conn.close()
+    cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (int(status), user_id))
+    conn.commit()
+    conn.close()
 
 def get_user_count():
     """گرفتن تعداد کل کاربران."""
